@@ -1,0 +1,350 @@
+@import "tailwindcss";
+
+/* ===== THEME TOKENS ===== */
+@theme inline {
+  /* ── Brand Primary ── */
+  --color-brand-deep-purple: #2A1055;
+  --color-brand-plum: #910D63;
+  --color-brand-green: #00A17D;
+  --color-brand-gray: #6D6A6A;
+  --color-brand-gold: #FFC000;
+
+  /* ── Brand Tints ── */
+  --color-brand-light-purple: #E4D5F5;
+  --color-brand-light-green: #D4F0E7;
+  --color-brand-light-gold: #FFF4D1;
+  --color-brand-lavender: #F5F3F7;
+  --color-brand-light-purple-gray: #EDEBEF;
+  --color-brand-near-white: #FAFAFA;
+
+  /* ── Segment Colors (modern palette) ── */
+  --color-seg-hrhphw: #00CCCC;
+  --color-seg-hrhplw: #007BFF;
+  --color-seg-hrlphw: #6F42C1;
+  --color-seg-hrlplw: #0DCAF0;
+  --color-seg-lrhphw: #FFB703;
+  --color-seg-lrhplw: #FB8500;
+  --color-seg-lrlphw: #219EBC;
+  --color-seg-lrlplw: #17A2B8;
+
+  /* ── Crop Colors (modern palette) ── */
+  --color-crop-mint: #00CCCC;
+  --color-crop-rice: #FFB703;
+  --color-crop-potato: #6F42C1;
+  --color-crop-wheat: #FB8500;
+  --color-crop-mustard: #219EBC;
+
+  /* ── Baseline / Midline Round Colors ── */
+  --color-baseline: #5B8DEF;
+  --color-midline: #2DD4A8;
+
+  /* ── Primary Accent ── */
+  --color-accent: #00A17D;
+  --color-accent-dim: #008A6B;
+
+  /* ── Semantic Colors ── */
+  --color-positive: #00A17D;
+  --color-negative: #910D63;
+  --color-warning: #FFB703;
+
+  /* ── Fonts ── */
+  --font-heading: var(--font-poppins), "Poppins", system-ui, sans-serif;
+  --font-sans: var(--font-source-sans), "Source Sans 3", system-ui, sans-serif;
+  --font-mono: var(--font-source-sans), "Source Sans 3", ui-monospace, monospace;
+
+  /* ── Border Radius (aligned with Tailwind rounded-xl / 2xl) ── */
+  --radius-card: 0.75rem;
+  --radius-card-lg: 1rem;
+  --radius-button: 0.625rem;
+  --radius-badge: 0.5rem;
+  --radius-full: 9999px;
+
+  /* ── Animations ── */
+  --animate-fade-in: fade-in 0.5s ease-out;
+  --animate-slide-up: slide-up 0.5s ease-out;
+  --animate-shimmer: shimmer 2s infinite linear;
+  --animate-tooltip-enter: tooltip-enter 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
+  @keyframes tooltip-enter {
+    from { opacity: 0; transform: translateY(6px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+}
+
+/* ===== DARK THEME (default) ===== */
+:root {
+  /* Surfaces */
+  --color-surface-0: #1A0E2E;
+  --color-surface-1: #231545;
+  --color-surface-2: #2D1B52;
+  --color-surface-3: #3A2563;
+
+  /* Card / container */
+  --card-bg: rgba(42, 16, 85, 0.45);
+  --card-bg-hover: rgba(42, 16, 85, 0.60);
+  --card-border: rgba(228, 213, 245, 0.12);
+  --card-border-hover: rgba(228, 213, 245, 0.22);
+
+  /* Glass (legacy compat) */
+  --glass-bg: rgba(42, 16, 85, 0.45);
+  --glass-bg-hover: rgba(42, 16, 85, 0.60);
+  --glass-border: rgba(228, 213, 245, 0.12);
+  --glass-border-hover: rgba(228, 213, 245, 0.22);
+
+  /* Text */
+  --text-primary: #F5F3F7;
+  --text-secondary: rgba(245, 243, 247, 0.65);
+  --text-tertiary: rgba(245, 243, 247, 0.55);
+  --text-title: #FAFAFA;
+  --text-body: rgba(245, 243, 247, 0.80);
+
+  /* Shadows (purple tint) */
+  --shadow-card: 0 2px 8px rgba(42, 16, 85, 0.20), 0 1px 3px rgba(42, 16, 85, 0.15);
+  --shadow-card-hover: 0 8px 24px rgba(42, 16, 85, 0.30), 0 2px 6px rgba(42, 16, 85, 0.20);
+  --shadow-elevated: 0 12px 40px rgba(42, 16, 85, 0.35), 0 4px 12px rgba(42, 16, 85, 0.25);
+  --shadow-tooltip: 0 8px 30px rgba(0, 0, 0, 0.40), 0 2px 8px rgba(42, 16, 85, 0.30);
+}
+
+/* ===== LIGHT THEME ===== */
+.light {
+  --color-surface-0: #FAFAFA;
+  --color-surface-1: #FFFFFF;
+  --color-surface-2: #F5F3F7;
+  --color-surface-3: #EDEBEF;
+
+  --card-bg: rgba(255, 255, 255, 0.85);
+  --card-bg-hover: rgba(255, 255, 255, 0.95);
+  --card-border: rgba(42, 16, 85, 0.08);
+  --card-border-hover: rgba(42, 16, 85, 0.15);
+
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-bg-hover: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(42, 16, 85, 0.08);
+  --glass-border-hover: rgba(42, 16, 85, 0.15);
+
+  --text-primary: #2B2D2E;
+  --text-secondary: #3D4043;
+  --text-tertiary: #6D6A6A;
+  --text-title: #2B2D2E;
+  --text-body: #3D4043;
+
+  --shadow-card: 0 2px 8px rgba(42, 16, 85, 0.04), 0 1px 3px rgba(42, 16, 85, 0.03);
+  --shadow-card-hover: 0 6px 20px rgba(42, 16, 85, 0.08), 0 2px 6px rgba(42, 16, 85, 0.04);
+  --shadow-elevated: 0 12px 40px rgba(42, 16, 85, 0.10), 0 4px 12px rgba(42, 16, 85, 0.06);
+  --shadow-tooltip: 0 8px 30px rgba(42, 16, 85, 0.12), 0 2px 8px rgba(42, 16, 85, 0.08);
+}
+
+/* ===== BASE ===== */
+html {
+  color-scheme: dark;
+}
+html.light {
+  color-scheme: light;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--text-body);
+  min-height: 100vh;
+  background: var(--color-surface-0);
+}
+
+/* Dark body gradient */
+:root body {
+  background: radial-gradient(ellipse at top, #2D1B52 0%, #1A0E2E 70%);
+}
+
+/* Light body */
+.light body {
+  background: #FAFAFA;
+}
+
+/* ===== BRAND CARD SYSTEM ===== */
+.brand-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  transition: all 0.25s ease;
+}
+
+.brand-card-hover:hover {
+  background: var(--card-bg-hover);
+  border-color: var(--card-border-hover);
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* ===== GLASSMORPHISM (legacy compat → maps to brand-card) ===== */
+.glass {
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.glass-hover {
+  transition: all 0.25s ease;
+}
+.glass-hover:hover {
+  background: var(--card-bg-hover);
+  border-color: var(--card-border-hover);
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* ===== TYPOGRAPHY ===== */
+.text-primary { color: var(--text-primary); }
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary { color: var(--text-tertiary); }
+
+.font-heading {
+  font-family: var(--font-heading);
+  font-weight: 700;
+}
+
+/* ===== FOCUS & ACCESSIBILITY ===== */
+*:focus-visible {
+  outline: 2px solid var(--color-brand-gold);
+  outline-offset: 2px;
+  border-radius: var(--radius-button);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===== BENTO GRID ===== */
+.bento-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(228, 213, 245, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(228, 213, 245, 0.25);
+}
+
+.light ::-webkit-scrollbar-thumb {
+  background: rgba(42, 16, 85, 0.12);
+}
+.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(42, 16, 85, 0.20);
+}
+
+/* ===== LEAFLET OVERRIDES ===== */
+.leaflet-container {
+  background: var(--color-surface-0) !important;
+  border-radius: var(--radius-card);
+}
+.leaflet-control-zoom a {
+  background: rgba(42, 16, 85, 0.90) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(228, 213, 245, 0.15) !important;
+}
+.light .leaflet-control-zoom a {
+  background: rgba(255, 255, 255, 0.92) !important;
+  color: #2B2D2E !important;
+  border-color: rgba(42, 16, 85, 0.10) !important;
+}
+.leaflet-popup-content-wrapper {
+  background: var(--color-surface-1) !important;
+  color: var(--text-primary) !important;
+  border-radius: var(--radius-card) !important;
+  border: 1px solid var(--card-border) !important;
+  box-shadow: var(--shadow-elevated) !important;
+}
+.leaflet-popup-tip {
+  background: var(--color-surface-1) !important;
+}
+
+.light .leaflet-container {
+  background: #EDEBEF !important;
+}
+.light .leaflet-popup-content-wrapper {
+  background: rgba(255, 255, 255, 0.96) !important;
+  color: #2B2D2E !important;
+  border: 1px solid rgba(42, 16, 85, 0.08) !important;
+  box-shadow: 0 4px 16px rgba(42, 16, 85, 0.08) !important;
+}
+.light .leaflet-popup-tip {
+  background: rgba(255, 255, 255, 0.96) !important;
+}
+
+/* ===== RECHARTS OVERRIDES ===== */
+.recharts-text {
+  fill: var(--text-tertiary) !important;
+  font-size: 12px;
+  font-family: var(--font-sans);
+}
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--card-border) !important;
+}
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}
+
+/* ===== SKELETON SHIMMER ===== */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(228, 213, 245, 0.05) 25%,
+    rgba(228, 213, 245, 0.10) 50%,
+    rgba(228, 213, 245, 0.05) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite linear;
+  border-radius: var(--radius-badge);
+}
+
+.light .skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(42, 16, 85, 0.04) 25%,
+    rgba(42, 16, 85, 0.08) 50%,
+    rgba(42, 16, 85, 0.04) 75%
+  );
+  background-size: 200% 100%;
+}
+
+/* ===== TOOLTIP ANIMATION ===== */
+.tooltip-enter {
+  animation: tooltip-enter 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Hide scrollbar for section nav */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
