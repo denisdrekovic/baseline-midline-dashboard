@@ -356,17 +356,22 @@ function projectFarmerIncome(
   const yearsInProgram = cohortJoinYear != null ? year - cohortJoinYear : year - BASELINE_YEAR;
   const tenureFrac = getTenureFraction(yearsInProgram);
 
+  // Baseline inflation: all incomes grow at LIB rate so status quo holds steady.
+  // Levers represent additional improvement on top of this natural growth.
+  const yearsFromBase = year - BASELINE_YEAR;
+  const baseInflation = Math.pow(1 + LIB_INFLATION_RATE, yearsFromBase);
+
   let totalIncome = 0;
 
   // ── 1. Crop income projections ──
   for (const crop of MODELED_CROPS) {
     if (!baseline.isGrower[crop]) {
-      totalIncome += baseline.cropIncomes[crop]; // 0 for non-growers
+      totalIncome += baseline.cropIncomes[crop] * baseInflation;
       continue;
     }
 
     const lever = params.crops[crop];
-    const baseCropIncome = baseline.cropIncomes[crop];
+    const baseCropIncome = baseline.cropIncomes[crop] * baseInflation;
 
     // Calculate effective changes scaled by tenure
     const effYield = (lever.yieldChange / 100) * tenureFrac;
@@ -412,24 +417,24 @@ function projectFarmerIncome(
 
   // ── 2. Other on-farm income ──
   const effOther = (params.otherOnFarmChange / 100) * tenureFrac;
-  totalIncome += baseline.otherCropsIncome * (1 + effOther);
+  totalIncome += baseline.otherCropsIncome * baseInflation * (1 + effOther);
 
   // ── 3. Livestock income ──
   const effLivestock = (params.livestockChange / 100) * tenureFrac;
-  totalIncome += baseline.livestockIncome * (1 + effLivestock);
+  totalIncome += baseline.livestockIncome * baseInflation * (1 + effLivestock);
 
   // ── 4. Off-farm income ──
   const effOffFarm = (params.offFarmChange / 100) * tenureFrac;
-  totalIncome += baseline.offFarmIncome * (1 + effOffFarm);
+  totalIncome += baseline.offFarmIncome * baseInflation * (1 + effOffFarm);
 
-  // ── 5. Remainder (unaccounted income) — held constant ──
+  // ── 5. Remainder (unaccounted income) — inflated with baseline ──
   const accountedBaseline =
     Object.values(baseline.cropIncomes).reduce((a, b) => a + b, 0) +
     baseline.otherCropsIncome +
     baseline.livestockIncome +
     baseline.offFarmIncome;
   const remainder = baseline.totalNetIncome - accountedBaseline;
-  totalIncome += remainder;
+  totalIncome += remainder * baseInflation;
 
   return totalIncome;
 }
