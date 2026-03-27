@@ -392,9 +392,15 @@ function projectFarmerIncome(
     // Estimate baseline revenue and cost from net income
     // Use a rough cost ratio (costs are ~40% of revenue for most crops)
     const COST_RATIO = 0.4;
-    const baseRevenue = baseCropIncome > 0
-      ? baseCropIncome / (1 - COST_RATIO)
-      : Math.abs(baseCropIncome) * COST_RATIO / (1 - COST_RATIO);
+
+    if (baseCropIncome <= 0) {
+      // Negative or zero net income: cost-ratio decomposition is undefined.
+      // Pass through the baseline value and scale only by acreage change.
+      totalIncome += baseCropIncome * (1 + effAcreage);
+      continue;
+    }
+
+    const baseRevenue = baseCropIncome / (1 - COST_RATIO);
     const baseCost = baseRevenue * COST_RATIO;
 
     const projRevenue = baseRevenue * (1 + effYield) * (1 + effPrice) * (1 + effAcreage);
