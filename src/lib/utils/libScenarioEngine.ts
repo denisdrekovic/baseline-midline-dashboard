@@ -58,6 +58,10 @@ export const KHARIF_CROPS: ModeledCrop[] = ["mint", "rice"];
 /** Max total T2 farmers */
 export const MAX_T2_FARMERS = 10_000;
 
+/** Actual program population sizes (surveyed farmers are a representative sample) */
+export const PROGRAM_T1_FARMERS = 8_500;
+export const PROGRAM_LEGACY_FARMERS = 8_000;
+
 /** Default T2 yearly intake for the standard 6-year horizon */
 export const DEFAULT_T2_INTAKE: Record<number, number> = {
   2025: 2000,
@@ -388,6 +392,26 @@ function projectFarmerIncome(
 }
 
 /**
+ * Scale a surveyed sample up to the actual program population size
+ * by cycling through the sample with replacement.
+ */
+function scaleToPopulation(
+  sample: FarmerBaseline[],
+  targetSize: number,
+  idOffset: number
+): FarmerBaseline[] {
+  if (sample.length === 0 || targetSize <= 0) return [];
+  const scaled: FarmerBaseline[] = [];
+  for (let i = 0; i < targetSize; i++) {
+    scaled.push({
+      ...sample[i % sample.length],
+      id: idOffset + i,
+    });
+  }
+  return scaled;
+}
+
+/**
  * Run the full LIB scenario projection across all years.
  */
 export function runLIBScenario(
@@ -399,10 +423,14 @@ export function runLIBScenario(
     .map(extractBaseline)
     .filter((b): b is FarmerBaseline => b != null);
 
-  // Split by project group
-  const t1Core = allBaselines.filter((f) => f.project === "T-1");
-  const t1Legacy = allBaselines.filter((f) => f.project === "Control"); // Legacy approximated by Control
+  // Split by project group (surveyed samples)
+  const t1CoreSample = allBaselines.filter((f) => f.project === "T-1");
+  const t1LegacySample = allBaselines.filter((f) => f.project === "Control");
   const t2Base = allBaselines.filter((f) => f.project === "T-2");
+
+  // Scale surveyed samples up to actual program populations
+  const t1Core = scaleToPopulation(t1CoreSample, PROGRAM_T1_FARMERS, 200_000);
+  const t1Legacy = scaleToPopulation(t1LegacySample, PROGRAM_LEGACY_FARMERS, 300_000);
 
   // Active T1 farmers
   const t1Active = params.includeT1Legacy ? [...t1Core, ...t1Legacy] : t1Core;

@@ -1313,10 +1313,10 @@ export default function LIBScenarioTool() {
               {/* Body */}
               <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
                 <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  This tool projects household income from a <strong className="text-[var(--text-primary)]">2024 baseline</strong> to
-                  a target year by applying crop-level levers (yield, price, cost, acreage) to each farmer&apos;s actual income breakdown.
-                  Changes are <strong className="text-[var(--text-primary)]">compounded</strong> within each crop (revenue = yield × price × acreage)
-                  and applied only to farmers who grow that crop. T2 farmers realize improvements gradually via a tenure curve.
+                  This tool projects household income across the <strong className="text-[var(--text-primary)]">entire Shubh Samriddhi program</strong> — 8,500 T1 farmers,
+                  8,000 Legacy farmers (optional), and up to 10,000 T2 farmers — using income distributions from the 2024 baseline survey as the foundation.
+                  Crop-level levers (yield, price, cost, acreage) are applied to each farmer&apos;s income breakdown and <strong className="text-[var(--text-primary)]">compounded</strong> within
+                  each crop (revenue = yield × price × acreage). T2 farmers realize improvements gradually via a tenure curve.
                 </p>
 
                 {/* Table */}
@@ -1364,8 +1364,9 @@ export default function LIBScenarioTool() {
                 {/* Footnotes */}
                 <div className="space-y-2 text-[10px] text-[var(--text-tertiary)] leading-relaxed">
                   <p>
-                    <strong className="text-[var(--text-secondary)]">Farmer groups:</strong> T1 farmers (Core + optional Legacy) have been in the program
+                    <strong className="text-[var(--text-secondary)]">Farmer groups:</strong> 8,500 T1 farmers (Core) and 8,000 Legacy farmers (optional) have been in the program
                     since 2024 and realize full lever effects immediately. T2 farmers join in annual cohorts and follow the tenure curve above.
+                    All projections are scaled from the baseline survey sample to actual program population sizes.
                   </p>
                   <p>
                     <strong className="text-[var(--text-secondary)]">Rabi land balance:</strong> Potato, wheat, and mustard compete for the same
