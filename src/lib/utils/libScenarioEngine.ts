@@ -440,26 +440,6 @@ function projectFarmerIncome(
 }
 
 /**
- * Scale a surveyed sample up to the actual program population size
- * by cycling through the sample with replacement.
- */
-function scaleToPopulation(
-  sample: FarmerBaseline[],
-  targetSize: number,
-  idOffset: number
-): FarmerBaseline[] {
-  if (sample.length === 0 || targetSize <= 0) return [];
-  const scaled: FarmerBaseline[] = [];
-  for (let i = 0; i < targetSize; i++) {
-    scaled.push({
-      ...sample[i % sample.length],
-      id: idOffset + i,
-    });
-  }
-  return scaled;
-}
-
-/**
  * Run the full LIB scenario projection across all years.
  */
 export function runLIBScenario(
@@ -475,18 +455,20 @@ export function runLIBScenario(
   const t1CoreSample = allBaselines.filter((f) => f.project === "T-1");
   const t2Base = allBaselines.filter((f) => f.project === "T-2");
 
-  // Scale surveyed samples up to actual program populations
-  // Legacy uses T-1 distribution (they had prior program support, unlike Control)
-  const t1Core = scaleToPopulation(t1CoreSample, PROGRAM_T1_FARMERS, 200_000);
-  const t1Legacy = scaleToPopulation(t1CoreSample, PROGRAM_LEGACY_FARMERS, 300_000);
+  // Project on the actual survey sample — scale factors convert counts for display.
+  // This avoids cycling artifacts from partial repetitions.
+  const t1ScaleFactor = PROGRAM_T1_FARMERS / (t1CoreSample.length || 1);
+  const legacyScaleFactor = PROGRAM_LEGACY_FARMERS / (t1CoreSample.length || 1);
 
   // T1 Core gets full lever effects; Legacy is tracked separately (inflation only)
-  const t1Active = t1Core;
+  const t1Active = t1CoreSample;
 
-  // Baseline stats (2024)
-  const allActive2024 = params.includeT1Legacy ? [...t1Active, ...t1Legacy, ...t2Base] : [...t1Active, ...t2Base];
+  // Baseline stats (2024) — computed on sample, scaled for display
   const baselineLIB = getLIBForYear(BASELINE_YEAR);
-  const baselineAbove = allActive2024.filter((f) => f.totalNetIncome > baselineLIB).length;
+  const t1SampleAbove2024 = t1Active.filter((f) => f.totalNetIncome > baselineLIB).length;
+  const baselineAboveSample = t1SampleAbove2024; // T2 not active at baseline
+  const baselineAbove = Math.round(t1SampleAbove2024 * t1ScaleFactor)
+    + (params.includeT1Legacy ? Math.round(t1SampleAbove2024 * legacyScaleFactor) : 0);
 
   // Build dynamic year range from projectionYears param
   const modelYears = generateYears(params.projectionYears ?? 6);
@@ -501,22 +483,32 @@ export function runLIBScenario(
   for (const year of modelYears) {
     const lib = getLIBForYear(year);
 
-    // ── T1 Core projections (full lever effects) ──
-    const t1Incomes = t1Active.map((f) => projectFarmerIncome(f, params, year));
-    const t1Above = t1Incomes.filter((inc) => inc > lib).length;
-    const t1Below = t1Incomes.filter((inc) => inc <= lib);
-    const t1BaseAbove = t1Active.filter((f) => f.totalNetIncome > baselineLIB).length;
+    // ── T1 Core projections (on sample, scaled for display) ──
+    const t1SampleIncomes = t1Active.map((f) => projectFarmerIncome(f, params, year));
+    const t1SampleAbove = t1SampleIncomes.filter((inc) => inc > lib).length;
+    const t1SampleBelow = t1SampleIncomes.filter((inc) => inc <= lib);
+    const t1SampleBaseAbove = t1Active.filter((f) => f.totalNetIncome > baselineLIB).length;
 
-    // ── Legacy projections (inflation-only, no lever effects) ──
+    // Scale to program population
+    const t1Above = Math.round(t1SampleAbove * t1ScaleFactor);
+    const t1TotalDisplay = PROGRAM_T1_FARMERS;
+    const t1BaseAbove = Math.round(t1SampleBaseAbove * t1ScaleFactor);
+
+    // ── Legacy projections (same sample, inflation-only, no lever effects) ──
     const yearsFromBase = year - BASELINE_YEAR;
     const inflationFactor = Math.pow(1 + LIB_INFLATION_RATE, yearsFromBase);
-    let legacyIncomes: number[] = [];
+    let legacySampleAbove = 0;
+    let legacyTotalDisplay = 0;
     let legacyAbove = 0;
     let legacyBaseAbove = 0;
+    let legacySampleIncomes: number[] = [];
     if (params.includeT1Legacy) {
-      legacyIncomes = t1Legacy.map((f) => f.totalNetIncome * inflationFactor);
-      legacyAbove = legacyIncomes.filter((inc) => inc > lib).length;
-      legacyBaseAbove = t1Legacy.filter((f) => f.totalNetIncome > baselineLIB).length;
+      // Same T1 sample, inflation only
+      legacySampleIncomes = t1Active.map((f) => f.totalNetIncome * inflationFactor);
+      legacySampleAbove = legacySampleIncomes.filter((inc) => inc > lib).length;
+      legacyAbove = Math.round(legacySampleAbove * legacyScaleFactor);
+      legacyTotalDisplay = PROGRAM_LEGACY_FARMERS;
+      legacyBaseAbove = Math.round(t1SampleBaseAbove * legacyScaleFactor);
     }
 
     // ── T2 projections (all active cohorts for this year) ──
@@ -541,38 +533,63 @@ export function runLIBScenario(
       t2BaseAbove += cohortFarmers.filter((f) => f.totalNetIncome > baselineLIB).length;
     }
 
-    // ── Aggregate ──
-    const allIncomes = [...t1Incomes, ...legacyIncomes, ...t2Incomes];
+    // ── Aggregate (percentages from sample, counts scaled) ──
     const totalAbove = t1Above + legacyAbove + t2Above;
-    const totalBelow = allIncomes.filter((inc) => inc <= lib);
+    const totalFarmersDisplay = t1TotalDisplay + legacyTotalDisplay + t2Incomes.length;
+
+    // For averages/medians, use the sample incomes (statistically equivalent)
+    const t1Pct = t1Active.length > 0 ? (t1SampleAbove / t1Active.length) * 100 : 0;
+    const legacyPct = params.includeT1Legacy && t1Active.length > 0
+      ? (legacySampleAbove / t1Active.length) * 100 : 0;
+
+    // Weighted average income across all groups
+    const t1Weight = t1TotalDisplay;
+    const legacyWeight = legacyTotalDisplay;
+    const t2Weight = t2Incomes.length;
+    const totalWeight = t1Weight + legacyWeight + t2Weight;
+    const t1AvgInc = t1SampleIncomes.length > 0 ? mean(t1SampleIncomes) : 0;
+    const legacyAvgInc = legacySampleIncomes.length > 0 ? mean(legacySampleIncomes) : 0;
+    const t2AvgInc = t2Incomes.length > 0 ? mean(t2Incomes) : 0;
+    const totalAvgInc = totalWeight > 0
+      ? (t1AvgInc * t1Weight + legacyAvgInc * legacyWeight + t2AvgInc * t2Weight) / totalWeight
+      : 0;
+
+    // Combined below-LIB for gap calculation
+    const allBelowIncomes = [
+      ...t1SampleBelow,
+      ...(params.includeT1Legacy ? legacySampleIncomes.filter((inc) => inc <= lib) : []),
+      ...t2Below,
+    ];
+
+    const totalPctAboveLIB = totalWeight > 0 ? (totalAbove / totalFarmersDisplay) * 100 : 0;
 
     const result: YearlyResult = {
       year,
       lib,
-      t1TotalFarmers: t1Active.length,
+      t1TotalFarmers: t1TotalDisplay,
       t1AboveLIB: t1Above,
-      t1PctAboveLIB: t1Active.length > 0 ? (t1Above / t1Active.length) * 100 : 0,
-      t1AvgIncome: t1Incomes.length > 0 ? mean(t1Incomes) : 0,
-      t1MedianIncome: t1Incomes.length > 0 ? median(t1Incomes) : 0,
-      t1AvgLIBGap: t1Below.length > 0 ? mean(t1Below.map((inc) => lib - inc)) : 0,
+      t1PctAboveLIB: t1Pct,
+      t1AvgIncome: t1AvgInc,
+      t1MedianIncome: t1SampleIncomes.length > 0 ? median(t1SampleIncomes) : 0,
+      t1AvgLIBGap: t1SampleBelow.length > 0 ? mean(t1SampleBelow.map((inc) => lib - inc)) : 0,
       t1MovedAboveLIB: Math.max(0, t1Above - t1BaseAbove),
-      legacyTotalFarmers: legacyIncomes.length,
+      legacyTotalFarmers: legacyTotalDisplay,
       legacyAboveLIB: legacyAbove,
-      legacyPctAboveLIB: legacyIncomes.length > 0 ? (legacyAbove / legacyIncomes.length) * 100 : 0,
-      legacyAvgIncome: legacyIncomes.length > 0 ? mean(legacyIncomes) : 0,
+      legacyPctAboveLIB: legacyPct,
+      legacyAvgIncome: legacyAvgInc,
       t2TotalFarmers: t2Incomes.length,
       t2AboveLIB: t2Above,
       t2PctAboveLIB: t2Incomes.length > 0 ? (t2Above / t2Incomes.length) * 100 : 0,
-      t2AvgIncome: t2Incomes.length > 0 ? mean(t2Incomes) : 0,
+      t2AvgIncome: t2AvgInc,
       t2MedianIncome: t2Incomes.length > 0 ? median(t2Incomes) : 0,
       t2AvgLIBGap: t2Below.length > 0 ? mean(t2Below.map((inc) => lib - inc)) : 0,
       t2MovedAboveLIB: Math.max(0, t2Above - t2BaseAbove),
-      totalFarmers: allIncomes.length,
+      totalFarmers: totalFarmersDisplay,
       totalAboveLIB: totalAbove,
-      totalPctAboveLIB: allIncomes.length > 0 ? (totalAbove / allIncomes.length) * 100 : 0,
-      totalAvgIncome: allIncomes.length > 0 ? mean(allIncomes) : 0,
+      totalPctAboveLIB,
+      totalAvgIncome: totalAvgInc,
       totalMovedAboveLIB: Math.max(0, totalAbove - (t1BaseAbove + legacyBaseAbove + t2BaseAbove)),
-      totalAvgLIBGap: totalBelow.length > 0 ? mean(totalBelow.map((inc) => lib - inc)) : 0,
+      totalAvgLIBGap: allBelowIncomes.length > 0 ? mean(allBelowIncomes.map((inc) => lib - inc)) : 0,
     };
 
     yearlyResults.push(result);
@@ -584,14 +601,17 @@ export function runLIBScenario(
   // Summary = target year result
   const summary = yearlyResults.find((r) => r.year === params.targetYear) ?? yearlyResults[yearlyResults.length - 1];
 
+  const baselineTotalFarmers = PROGRAM_T1_FARMERS
+    + (params.includeT1Legacy ? PROGRAM_LEGACY_FARMERS : 0);
+
   return {
     params,
     yearlyResults,
     cropContributions,
     summary,
     baselineAboveLIB: baselineAbove,
-    baselinePctAboveLIB: allActive2024.length > 0 ? (baselineAbove / allActive2024.length) * 100 : 0,
-    baselineTotalFarmers: allActive2024.length,
+    baselinePctAboveLIB: baselineTotalFarmers > 0 ? (baselineAbove / baselineTotalFarmers) * 100 : 0,
+    baselineTotalFarmers,
   };
 }
 
