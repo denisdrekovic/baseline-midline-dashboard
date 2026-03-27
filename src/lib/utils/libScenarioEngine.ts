@@ -130,6 +130,7 @@ export interface LIBScenarioParams {
   crops: Record<ModeledCrop, CropLever>;
   otherOnFarmChange: number;    // % change
   livestockChange: number;      // % change
+  offFarmChange: number;        // % change in off-farm income
   t2YearlyIntake: Record<number, number>; // year -> number of new T2 farmers
   includeT1Legacy: boolean;
   targetYear: ModelYear;
@@ -148,6 +149,11 @@ export interface YearlyResult {
   t1MedianIncome: number;
   t1AvgLIBGap: number;          // among below-LIB farmers
   t1MovedAboveLIB: number;      // relative to anchor
+  // Legacy results (if toggled on)
+  legacyTotalFarmers: number;
+  legacyAboveLIB: number;
+  legacyPctAboveLIB: number;
+  legacyAvgIncome: number;
   // T2 results
   t2TotalFarmers: number;
   t2AboveLIB: number;
@@ -241,7 +247,7 @@ export const LIB_METHODOLOGY: {
     parameter: "Population Scaling",
     elasticity: "N/A (scaling)",
     maxEffect: `${PROGRAM_T1_FARMERS.toLocaleString()} T1 + ${PROGRAM_LEGACY_FARMERS.toLocaleString()} Legacy`,
-    mechanism: `Baseline survey data (~1,068 T1, ~1,291 Legacy, ~220 T2 farmers) is treated as a representative sample. Income distributions are resampled to match actual program populations: ${PROGRAM_T1_FARMERS.toLocaleString()} T1 farmers, ${PROGRAM_LEGACY_FARMERS.toLocaleString()} Legacy farmers (optional), and T2 farmers added incrementally. Percentages and averages remain statistically equivalent; counts reflect program scale.`,
+    mechanism: `Baseline survey data (~1,068 T1, ~220 T2 farmers) is treated as a representative sample. T1 Core (${PROGRAM_T1_FARMERS.toLocaleString()}) and Legacy (${PROGRAM_LEGACY_FARMERS.toLocaleString()}, optional) both use the T1 survey distribution. Legacy farmers retain baseline income inflating at the LIB rate (no program lever effects). T2 farmers are added incrementally using the T2 survey distribution.`,
     source: "Shubh Samriddhi program design",
     sourceUrl: null,
   },
@@ -280,6 +286,7 @@ interface FarmerBaseline {
   cropIncomes: Record<ModeledCrop, number>;
   otherCropsIncome: number;
   livestockIncome: number;
+  offFarmIncome: number;
   isGrower: Record<ModeledCrop, boolean>;
 }
 
@@ -301,6 +308,7 @@ function extractBaseline(farmer: Farmer): FarmerBaseline | null {
     cropIncomes: cropIncomes as Record<ModeledCrop, number>,
     otherCropsIncome: farmer.otherCropsNetIncome ?? 0,
     livestockIncome: farmer.livestockIncome ?? 0,
+    offFarmIncome: farmer.offFarmNetIncome ?? 0,
     isGrower: isGrower as Record<ModeledCrop, boolean>,
   };
 }
@@ -388,11 +396,16 @@ function projectFarmerIncome(
   const effLivestock = (params.livestockChange / 100) * tenureFrac;
   totalIncome += baseline.livestockIncome * (1 + effLivestock);
 
-  // ── 4. Remainder (off-farm, etc.) — held constant ──
+  // ── 4. Off-farm income ──
+  const effOffFarm = (params.offFarmChange / 100) * tenureFrac;
+  totalIncome += baseline.offFarmIncome * (1 + effOffFarm);
+
+  // ── 5. Remainder (unaccounted income) — held constant ──
   const accountedBaseline =
     Object.values(baseline.cropIncomes).reduce((a, b) => a + b, 0) +
     baseline.otherCropsIncome +
-    baseline.livestockIncome;
+    baseline.livestockIncome +
+    baseline.offFarmIncome;
   const remainder = baseline.totalNetIncome - accountedBaseline;
   totalIncome += remainder;
 
@@ -433,18 +446,18 @@ export function runLIBScenario(
 
   // Split by project group (surveyed samples)
   const t1CoreSample = allBaselines.filter((f) => f.project === "T-1");
-  const t1LegacySample = allBaselines.filter((f) => f.project === "Control");
   const t2Base = allBaselines.filter((f) => f.project === "T-2");
 
   // Scale surveyed samples up to actual program populations
+  // Legacy uses T-1 distribution (they had prior program support, unlike Control)
   const t1Core = scaleToPopulation(t1CoreSample, PROGRAM_T1_FARMERS, 200_000);
-  const t1Legacy = scaleToPopulation(t1LegacySample, PROGRAM_LEGACY_FARMERS, 300_000);
+  const t1Legacy = scaleToPopulation(t1CoreSample, PROGRAM_LEGACY_FARMERS, 300_000);
 
-  // Active T1 farmers
-  const t1Active = params.includeT1Legacy ? [...t1Core, ...t1Legacy] : t1Core;
+  // T1 Core gets full lever effects; Legacy is tracked separately (inflation only)
+  const t1Active = t1Core;
 
   // Baseline stats (2024)
-  const allActive2024 = [...t1Active, ...t2Base];
+  const allActive2024 = params.includeT1Legacy ? [...t1Active, ...t1Legacy, ...t2Base] : [...t1Active, ...t2Base];
   const baselineLIB = getLIBForYear(BASELINE_YEAR);
   const baselineAbove = allActive2024.filter((f) => f.totalNetIncome > baselineLIB).length;
 
@@ -461,11 +474,23 @@ export function runLIBScenario(
   for (const year of modelYears) {
     const lib = getLIBForYear(year);
 
-    // ── T1 projections ──
+    // ── T1 Core projections (full lever effects) ──
     const t1Incomes = t1Active.map((f) => projectFarmerIncome(f, params, year));
     const t1Above = t1Incomes.filter((inc) => inc > lib).length;
     const t1Below = t1Incomes.filter((inc) => inc <= lib);
     const t1BaseAbove = t1Active.filter((f) => f.totalNetIncome > baselineLIB).length;
+
+    // ── Legacy projections (inflation-only, no lever effects) ──
+    const yearsFromBase = year - BASELINE_YEAR;
+    const inflationFactor = Math.pow(1 + LIB_INFLATION_RATE, yearsFromBase);
+    let legacyIncomes: number[] = [];
+    let legacyAbove = 0;
+    let legacyBaseAbove = 0;
+    if (params.includeT1Legacy) {
+      legacyIncomes = t1Legacy.map((f) => f.totalNetIncome * inflationFactor);
+      legacyAbove = legacyIncomes.filter((inc) => inc > lib).length;
+      legacyBaseAbove = t1Legacy.filter((f) => f.totalNetIncome > baselineLIB).length;
+    }
 
     // ── T2 projections (all active cohorts for this year) ──
     const t2ActiveFarmers: { income: number }[] = [];
@@ -490,8 +515,8 @@ export function runLIBScenario(
     }
 
     // ── Aggregate ──
-    const allIncomes = [...t1Incomes, ...t2Incomes];
-    const totalAbove = t1Above + t2Above;
+    const allIncomes = [...t1Incomes, ...legacyIncomes, ...t2Incomes];
+    const totalAbove = t1Above + legacyAbove + t2Above;
     const totalBelow = allIncomes.filter((inc) => inc <= lib);
 
     const result: YearlyResult = {
@@ -504,6 +529,10 @@ export function runLIBScenario(
       t1MedianIncome: t1Incomes.length > 0 ? median(t1Incomes) : 0,
       t1AvgLIBGap: t1Below.length > 0 ? mean(t1Below.map((inc) => lib - inc)) : 0,
       t1MovedAboveLIB: Math.max(0, t1Above - t1BaseAbove),
+      legacyTotalFarmers: legacyIncomes.length,
+      legacyAboveLIB: legacyAbove,
+      legacyPctAboveLIB: legacyIncomes.length > 0 ? (legacyAbove / legacyIncomes.length) * 100 : 0,
+      legacyAvgIncome: legacyIncomes.length > 0 ? mean(legacyIncomes) : 0,
       t2TotalFarmers: t2Incomes.length,
       t2AboveLIB: t2Above,
       t2PctAboveLIB: t2Incomes.length > 0 ? (t2Above / t2Incomes.length) * 100 : 0,
@@ -515,7 +544,7 @@ export function runLIBScenario(
       totalAboveLIB: totalAbove,
       totalPctAboveLIB: allIncomes.length > 0 ? (totalAbove / allIncomes.length) * 100 : 0,
       totalAvgIncome: allIncomes.length > 0 ? mean(allIncomes) : 0,
-      totalMovedAboveLIB: Math.max(0, totalAbove - (t1BaseAbove + t2BaseAbove)),
+      totalMovedAboveLIB: Math.max(0, totalAbove - (t1BaseAbove + legacyBaseAbove + t2BaseAbove)),
       totalAvgLIBGap: totalBelow.length > 0 ? mean(totalBelow.map((inc) => lib - inc)) : 0,
     };
 
@@ -699,6 +728,7 @@ export function createDefaultParams(name = "Untitled Scenario", projectionYears 
     crops,
     otherOnFarmChange: 0,
     livestockChange: 0,
+    offFarmChange: 0,
     t2YearlyIntake: projectionYears === 6 ? { ...DEFAULT_T2_INTAKE } : generateDefaultT2Intake(projectionYears),
     includeT1Legacy: false,
     targetYear: BASELINE_YEAR + projectionYears,
@@ -1355,6 +1385,7 @@ function validateScenarioParams(raw: Record<string, unknown>): LIBScenarioParams
     crops,
     otherOnFarmChange: clamp(Number(raw.otherOnFarmChange) || 0, -50, 100),
     livestockChange: clamp(Number(raw.livestockChange) || 0, -50, 100),
+    offFarmChange: clamp(Number(raw.offFarmChange) || 0, -50, 100),
     t2YearlyIntake,
     includeT1Legacy: Boolean(raw.includeT1Legacy),
     targetYear,

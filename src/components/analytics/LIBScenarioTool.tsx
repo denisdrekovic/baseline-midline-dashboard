@@ -601,6 +601,7 @@ export default function LIBScenarioTool() {
     return JSON.stringify(params.crops) !== JSON.stringify(defaults.crops) ||
       params.otherOnFarmChange !== 0 ||
       params.livestockChange !== 0 ||
+      params.offFarmChange !== 0 ||
       params.includeT1Legacy !== false ||
       JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(generateDefaultT2Intake(params.projectionYears ?? 6));
   }, [params]);
@@ -673,6 +674,7 @@ export default function LIBScenarioTool() {
     }
     if (params.otherOnFarmChange !== 0) count++;
     if (params.livestockChange !== 0) count++;
+    if (params.offFarmChange !== 0) count++;
     if (params.includeT1Legacy) count++;
     if (JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(generateDefaultT2Intake(params.projectionYears ?? 6))) count++;
     return count;
@@ -898,30 +900,32 @@ export default function LIBScenarioTool() {
                       <tr style={{ background: "var(--card-bg)" }}>
                         <th className="text-left py-2 px-3 text-[var(--text-tertiary)] font-semibold">Metric</th>
                         <th className="text-right py-2 px-3 font-semibold" style={{ color: "#007BFF" }}>T1</th>
+                        {params.includeT1Legacy && <th className="text-right py-2 px-3 font-semibold" style={{ color: "#E67E22" }}>Legacy</th>}
                         <th className="text-right py-2 px-3 font-semibold" style={{ color: "#6F42C1" }}>T2</th>
                         <th className="text-right py-2 px-3 font-semibold" style={{ color: "#00A17D" }}>Total</th>
                       </tr>
                     </thead>
                     <tbody>
                       {[
-                        { label: "Total Farmers", t1: formatNumber(activeResult.t1TotalFarmers), t2: formatNumber(activeResult.t2TotalFarmers), total: formatNumber(activeResult.totalFarmers) },
-                        { label: "% Above LIB", t1: formatPercent(activeResult.t1PctAboveLIB), t2: formatPercent(activeResult.t2PctAboveLIB), total: formatPercent(activeResult.totalPctAboveLIB) },
-                        { label: "# Above LIB", t1: formatNumber(activeResult.t1AboveLIB), t2: formatNumber(activeResult.t2AboveLIB), total: formatNumber(activeResult.totalAboveLIB) },
-                        { label: "Moved Above LIB", t1: `+${formatNumber(activeResult.t1MovedAboveLIB)}`, t2: `+${formatNumber(activeResult.t2MovedAboveLIB)}`, total: `+${formatNumber(activeResult.totalMovedAboveLIB)}` },
-                        { label: "Avg Income", t1: formatUSD(activeResult.t1AvgIncome), t2: formatUSD(activeResult.t2AvgIncome), total: formatUSD(activeResult.totalAvgIncome) },
-                        { label: "Median Income", t1: formatUSD(activeResult.t1MedianIncome), t2: formatUSD(activeResult.t2MedianIncome), total: "\u2014" },
-                        { label: "Avg LIB Gap", t1: formatUSD(activeResult.t1AvgLIBGap), t2: formatUSD(activeResult.t2AvgLIBGap), total: formatUSD(activeResult.totalAvgLIBGap) },
+                        { label: "Total Farmers", t1: formatNumber(activeResult.t1TotalFarmers), legacy: formatNumber(activeResult.legacyTotalFarmers), t2: formatNumber(activeResult.t2TotalFarmers), total: formatNumber(activeResult.totalFarmers) },
+                        { label: "% Above LIB", t1: formatPercent(activeResult.t1PctAboveLIB), legacy: formatPercent(activeResult.legacyPctAboveLIB), t2: formatPercent(activeResult.t2PctAboveLIB), total: formatPercent(activeResult.totalPctAboveLIB) },
+                        { label: "# Above LIB", t1: formatNumber(activeResult.t1AboveLIB), legacy: formatNumber(activeResult.legacyAboveLIB), t2: formatNumber(activeResult.t2AboveLIB), total: formatNumber(activeResult.totalAboveLIB) },
+                        { label: "Moved Above LIB", t1: `+${formatNumber(activeResult.t1MovedAboveLIB)}`, legacy: "\u2014", t2: `+${formatNumber(activeResult.t2MovedAboveLIB)}`, total: `+${formatNumber(activeResult.totalMovedAboveLIB)}` },
+                        { label: "Avg Income", t1: formatUSD(activeResult.t1AvgIncome), legacy: formatUSD(activeResult.legacyAvgIncome), t2: formatUSD(activeResult.t2AvgIncome), total: formatUSD(activeResult.totalAvgIncome) },
+                        { label: "Median Income", t1: formatUSD(activeResult.t1MedianIncome), legacy: "\u2014", t2: formatUSD(activeResult.t2MedianIncome), total: "\u2014" },
+                        { label: "Avg LIB Gap", t1: formatUSD(activeResult.t1AvgLIBGap), legacy: "\u2014", t2: formatUSD(activeResult.t2AvgLIBGap), total: formatUSD(activeResult.totalAvgLIBGap) },
                       ].map((row, i) => (
                         <tr key={i} className="border-t border-[var(--card-border)]">
                           <td className="py-2 px-3 text-[var(--text-secondary)] font-medium">{row.label}</td>
                           <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono">{row.t1}</td>
+                          {params.includeT1Legacy && <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono">{row.legacy}</td>}
                           <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono">{row.t2}</td>
                           <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono font-bold">{row.total}</td>
                         </tr>
                       ))}
                       <tr className="border-t border-[var(--card-border)]" style={{ background: "var(--card-bg)" }}>
                         <td className="py-2 px-3 text-[var(--text-tertiary)] font-medium">LIB Benchmark</td>
-                        <td colSpan={3} className="py-2 px-3 text-right text-[var(--text-primary)] font-mono font-bold">{formatUSD(activeResult.lib)}</td>
+                        <td colSpan={params.includeT1Legacy ? 4 : 3} className="py-2 px-3 text-right text-[var(--text-primary)] font-mono font-bold">{formatUSD(activeResult.lib)}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1175,6 +1179,17 @@ export default function LIBScenarioTool() {
                         />
                         <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5 ml-10">Livestock income (separate from crops)</p>
                       </div>
+                      <div>
+                        <LeverSlider
+                          label="Off-Farm"
+                          value={params.offFarmChange}
+                          onChange={(v) => setParams((p) => ({ ...p, offFarmChange: v }))}
+                          color="#8B5CF6"
+                          min={-50}
+                          max={100}
+                        />
+                        <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5 ml-10">Wages, remittances, non-ag activities</p>
+                      </div>
                     </div>
                   </div>
 
@@ -1195,7 +1210,7 @@ export default function LIBScenarioTool() {
                         />
                         <div>
                           <span className="text-[11px] font-medium text-[var(--text-primary)]">Include T1 Legacy</span>
-                          <p className="text-[9px] text-[var(--text-tertiary)]">Dropped from active program by default</p>
+                          <p className="text-[9px] text-[var(--text-tertiary)]">8,000 offboarded farmers (inflation-only growth)</p>
                         </div>
                       </label>
 
@@ -1313,10 +1328,10 @@ export default function LIBScenarioTool() {
               {/* Body */}
               <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
                 <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  This tool projects household income across the <strong className="text-[var(--text-primary)]">entire Shubh Samriddhi program</strong> — 8,500 T1 farmers,
-                  8,000 Legacy farmers (optional), and up to 10,000 T2 farmers — using income distributions from the 2024 baseline survey as the foundation.
-                  Crop-level levers (yield, price, cost, acreage) are applied to each farmer&apos;s income breakdown and <strong className="text-[var(--text-primary)]">compounded</strong> within
-                  each crop (revenue = yield × price × acreage). T2 farmers realize improvements gradually via a tenure curve.
+                  This tool projects household income across the <strong className="text-[var(--text-primary)]">entire Shubh Samriddhi program</strong> — 8,500 T1 Core farmers,
+                  8,000 Legacy farmers (optional, inflation-only), and up to 10,000 T2 farmers — using the T1 and T2 baseline survey distributions as the foundation.
+                  Crop-level levers (yield, price, cost, acreage) are applied to T1 Core and T2 farmers. Legacy farmers retain baseline income
+                  inflating year-over-year. T2 farmers realize improvements gradually via a tenure curve.
                 </p>
 
                 {/* Table */}
@@ -1364,9 +1379,10 @@ export default function LIBScenarioTool() {
                 {/* Footnotes */}
                 <div className="space-y-2 text-[10px] text-[var(--text-tertiary)] leading-relaxed">
                   <p>
-                    <strong className="text-[var(--text-secondary)]">Farmer groups:</strong> 8,500 T1 farmers (Core) and 8,000 Legacy farmers (optional) have been in the program
-                    since 2024 and realize full lever effects immediately. T2 farmers join in annual cohorts and follow the tenure curve above.
-                    All projections are scaled from the baseline survey sample to actual program population sizes.
+                    <strong className="text-[var(--text-secondary)]">Farmer groups:</strong> 8,500 T1 Core farmers receive full lever effects.
+                    8,000 Legacy farmers (optional, offboarded from active program) retain their baseline income level, inflating with
+                    the LIB rate year-over-year but receiving no program lever effects. T2 farmers join in annual cohorts and follow the tenure curve above.
+                    All projections are scaled from the T1 baseline survey sample to actual program population sizes.
                   </p>
                   <p>
                     <strong className="text-[var(--text-secondary)]">Rabi land balance:</strong> Potato, wheat, and mustard compete for the same
