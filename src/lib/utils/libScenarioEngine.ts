@@ -520,8 +520,11 @@ function buildT2Cohorts(
   let totalAssigned = 0;
   const yearsToUse = modelYears ?? [...YEARS];
 
+  // Include actual T2 baseline farmers as the baseline-year cohort
+  cohorts[BASELINE_YEAR] = t2Base.map((f, i) => ({ ...f, id: 100_000 + BASELINE_YEAR * 10_000 + i }));
+
   for (const year of yearsToUse) {
-    if (year === BASELINE_YEAR) continue; // T2 cohorts start from 2025
+    if (year === BASELINE_YEAR) continue; // baseline cohort already added above
     const count = intake[year] ?? 0;
     if (count === 0 || totalAssigned >= MAX_T2_FARMERS) {
       cohorts[year] = [];
