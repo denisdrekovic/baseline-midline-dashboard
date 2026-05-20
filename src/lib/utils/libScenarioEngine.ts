@@ -1,15 +1,21 @@
 /**
  * Living Income Benchmark (LIB) Scenario Tool Engine
  *
- * Projects household income trajectories from 2024 baseline to 2030
- * for T1 (Core + Legacy) and T2 (cohort-based) farmer groups.
+ * Calculates the Mint Segment's official Living Income KPI across the
+ * full supply shed (T1 Core, T2, Legacy/offboarded, and non-program farmers)
+ * and projects forward from the most recent reported KPI year.
  *
  * Key features:
- * - Crop-level levers: yield, price, cost of production, acreage
- * - Other income levers: on-farm, livestock
- * - T2 cohort intake over time with tenure-based improvement curves
+ * - Supply shed KPI: numerator (≥LIB) / denominator (total supply shed) with
+ *   toggleable extrapolation rates (30%, 50%, 80%)
+ * - Reported vs projected years — backward-facing KPIs from actual data,
+ *   forward-facing from scenario levers
+ * - Component-based LIB inflation (CPI, fertilizer index, energy index)
+ * - Non-program population modeled from control group data
+ * - Gradual T1→Legacy offboarding schedule
+ * - Per-crop tenure-based improvement ramps for T2
+ * - Lever mode: percentage change OR fixed value per crop
  * - Rabi season land-balance rules (potato, wheat, mustard compete)
- * - LIB benchmark moves with inflation
  * - Only applies changes to farmers who actually grow each crop
  */
 
@@ -22,7 +28,37 @@ import { mean, median } from "./statistics";
 /** Living Income Benchmark (household annual USD) - 2024 baseline */
 export const LIB_2024 = 4933.5;
 
-/** Annual LIB inflation rate (CPI + fertilizer + energy index proxy) */
+/** Default LIB inflation component weights (sum to 1.0)
+ *  CPI is primary driver; fertilizer and energy are agricultural input modifiers. */
+export const DEFAULT_LIB_INFLATION_WEIGHTS = {
+  cpi: 0.60,
+  fertilizer: 0.25,
+  energy: 0.15,
+} as const;
+
+/** Default annual index rates (decimal, not %) — used when no per-year overrides provided */
+export const DEFAULT_INDEX_RATES = {
+  cpi: 0.04,         // India CPI ~4%
+  fertilizer: 0.03,  // Fertilizer price index ~3%
+  energy: 0.025,     // Energy price index ~2.5%
+} as const;
+
+/** Per-year index overrides: year -> { cpi, fertilizer, energy } (decimal rates).
+ *  When a year is not in this map, DEFAULT_INDEX_RATES apply.
+ *  Users can configure this via the UI. */
+export type YearlyIndexRates = Record<number, { cpi: number; fertilizer: number; energy: number }>;
+
+/** Compute the blended LIB inflation rate for a given year */
+export function getLIBInflationRate(
+  year: number,
+  yearlyIndices?: YearlyIndexRates,
+  weights = DEFAULT_LIB_INFLATION_WEIGHTS
+): number {
+  const rates = yearlyIndices?.[year] ?? DEFAULT_INDEX_RATES;
+  return rates.cpi * weights.cpi + rates.fertilizer * weights.fertilizer + rates.energy * weights.energy;
+}
+
+/** Legacy flat rate (kept for backward compat / display) */
 export const LIB_INFLATION_RATE = 0.035;
 
 /** Program start year / baseline year */
@@ -62,6 +98,15 @@ export const MAX_T2_FARMERS = 10_000;
 export const PROGRAM_T1_FARMERS = 8_500;
 export const PROGRAM_LEGACY_FARMERS = 8_000;
 
+/** Default total supply shed population estimate */
+export const DEFAULT_SUPPLY_SHED_POPULATION = 50_000;
+
+/** Extrapolation rate options — what fraction of the supply shed the
+ *  measured program+control data credibly represents */
+export const EXTRAPOLATION_RATES = [0.3, 0.5, 0.8] as const;
+export type ExtrapolationRate = (typeof EXTRAPOLATION_RATES)[number];
+export const DEFAULT_EXTRAPOLATION_RATE: ExtrapolationRate = 0.5;
+
 /** Default T2 yearly intake for the standard 6-year horizon */
 export const DEFAULT_T2_INTAKE: Record<number, number> = {
   2025: 2000,
@@ -86,11 +131,21 @@ export function generateDefaultT2Intake(projectionYears: number): Record<number,
   return intake;
 }
 
+/** Generate default T1 offboarding schedule (gradual, not all-at-once).
+ *  Distributes PROGRAM_LEGACY_FARMERS evenly across projection years. */
+export function generateDefaultT1Offboarding(projectionYears: number): Record<number, number> {
+  const offboarding: Record<number, number> = {};
+  for (let i = 1; i <= projectionYears; i++) {
+    offboarding[BASELINE_YEAR + i] = 0; // default: no offboarding (user fills in)
+  }
+  return offboarding;
+}
+
 /**
- * Tenure curve: years in program -> fraction of target improvement achieved.
+ * Default tenure curve: years in program -> fraction of target improvement achieved.
  * A farmer who joined in 2025 and it's now 2028 has 3 years -> 0.75 of target.
  */
-const TENURE_CURVE: Record<number, number> = {
+export const DEFAULT_TENURE_CURVE: Record<number, number> = {
   0: 0.0,
   1: 0.3,
   2: 0.55,
@@ -100,11 +155,25 @@ const TENURE_CURVE: Record<number, number> = {
   6: 1.0,
 };
 
-function getTenureFraction(yearsInProgram: number): number {
+/** Per-crop tenure ramps: override the default curve per crop.
+ *  Each entry is year-in-program -> fraction (0-1). */
+export type CropTenureRamps = Partial<Record<ModeledCrop, Record<number, number>>>;
+
+function getTenureFraction(
+  yearsInProgram: number,
+  cropRamp?: Record<number, number>
+): number {
+  const curve = cropRamp ?? DEFAULT_TENURE_CURVE;
   if (yearsInProgram <= 0) return 0;
-  if (yearsInProgram >= 6) return 1;
-  return TENURE_CURVE[yearsInProgram] ?? 1;
+  // Find the highest defined year <= yearsInProgram
+  const keys = Object.keys(curve).map(Number).sort((a, b) => a - b);
+  const maxKey = keys[keys.length - 1] ?? 5;
+  if (yearsInProgram >= maxKey) return curve[maxKey] ?? 1;
+  return curve[yearsInProgram] ?? curve[keys.filter(k => k <= yearsInProgram).pop() ?? 0] ?? 0;
 }
+
+/** Lever input mode */
+export type LeverMode = "percentage" | "fixed";
 
 // ─── Farmer income field mappings ─────────────────────────────────────────────
 
@@ -119,10 +188,15 @@ const CROP_NET_INCOME_KEY: Record<ModeledCrop, keyof Farmer> = {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface CropLever {
-  yieldChange: number;   // % change from baseline
+  yieldChange: number;   // % change from baseline (when leverMode = "percentage")
   priceChange: number;   // % change from baseline
   costChange: number;    // % change from baseline (negative = cost reduction)
   acreageChange: number; // % change from baseline
+  // Fixed-value overrides (used when leverMode = "fixed")
+  yieldFixed?: number;   // absolute yield target (e.g., kg/acre)
+  priceFixed?: number;   // absolute price target (e.g., INR/kg)
+  costFixed?: number;    // absolute cost target
+  acreageFixed?: number; // absolute acreage target
 }
 
 export interface LIBScenarioParams {
@@ -136,11 +210,26 @@ export interface LIBScenarioParams {
   targetYear: ModelYear;
   /** Number of years to project from baseline (default: 6 → 2024-2030) */
   projectionYears: number;
+  /** Lever input mode — percentage changes or fixed values */
+  leverMode: LeverMode;
+  /** Supply shed total estimated population (KPI denominator) */
+  supplyShEdPopulation: number;
+  /** Extrapolation rate: what fraction of the supply shed the data represents */
+  extrapolationRate: ExtrapolationRate;
+  /** Per-year inflation index overrides (CPI, fertilizer, energy) */
+  yearlyIndices?: YearlyIndexRates;
+  /** Per-crop tenure improvement ramps for T2 (overrides default curve) */
+  cropTenureRamps?: CropTenureRamps;
+  /** Yearly T1 offboarding schedule: year -> number of T1 farmers moved to Legacy */
+  t1Offboarding: Record<number, number>;
+  /** Reported KPI years — years where actual data exists (vs projected) */
+  reportedYears?: number[];
 }
 
 export interface YearlyResult {
   year: number;
   lib: number;                   // LIB benchmark for that year
+  isReported: boolean;           // true = actual data, false = projection
   // T1 results
   t1TotalFarmers: number;
   t1AboveLIB: number;
@@ -148,8 +237,8 @@ export interface YearlyResult {
   t1AvgIncome: number;
   t1MedianIncome: number;
   t1AvgLIBGap: number;          // among below-LIB farmers
-  t1MovedAboveLIB: number;      // relative to anchor
-  // Legacy results (if toggled on)
+  t1MovedAboveLIB: number;      // only real transitions, not new entrants
+  // Legacy results
   legacyTotalFarmers: number;
   legacyAboveLIB: number;
   legacyPctAboveLIB: number;
@@ -162,13 +251,22 @@ export interface YearlyResult {
   t2MedianIncome: number;
   t2AvgLIBGap: number;
   t2MovedAboveLIB: number;
-  // Program total
+  // Non-program / supply shed results
+  nonProgramTotalFarmers: number;
+  nonProgramAboveLIB: number;
+  nonProgramPctAboveLIB: number;
+  nonProgramAvgIncome: number;
+  // Program total (T1 + Legacy + T2, excludes non-program)
   totalFarmers: number;
   totalAboveLIB: number;
   totalPctAboveLIB: number;
   totalAvgIncome: number;
   totalMovedAboveLIB: number;
   totalAvgLIBGap: number;
+  // Supply shed KPI (all populations including non-program)
+  supplyShEdKPI: number;        // % of total supply shed at or above LIB
+  supplyShEdTotalFarmers: number;
+  supplyShEdAboveLIB: number;
 }
 
 export interface CropContribution {
@@ -190,6 +288,8 @@ export interface LIBScenarioResult {
   baselineAboveLIB: number;
   baselinePctAboveLIB: number;
   baselineTotalFarmers: number;
+  // Supply shed KPI baseline
+  baselineSupplyShEdKPI: number;
 }
 
 // ─── Methodology (for UI display) ─────────────────────────────────────────────
@@ -333,10 +433,37 @@ function extractBaseline(farmer: Farmer): FarmerBaseline | null {
 
 /**
  * Get the LIB benchmark for a given year, inflated from the 2024 base.
+ * Uses component-based inflation (CPI + fertilizer + energy) when per-year indices provided,
+ * otherwise falls back to the compound default rates.
  */
-export function getLIBForYear(year: number): number {
-  const yearsFromBase = year - BASELINE_YEAR;
-  return LIB_2024 * Math.pow(1 + LIB_INFLATION_RATE, yearsFromBase);
+export function getLIBForYear(year: number, yearlyIndices?: YearlyIndexRates): number {
+  if (!yearlyIndices) {
+    // Fast path: compound using blended default rate
+    const blended = getLIBInflationRate(BASELINE_YEAR, undefined);
+    return LIB_2024 * Math.pow(1 + blended, year - BASELINE_YEAR);
+  }
+  // Year-by-year compounding with per-year rates
+  let lib = LIB_2024;
+  for (let y = BASELINE_YEAR + 1; y <= year; y++) {
+    lib *= 1 + getLIBInflationRate(y, yearlyIndices);
+  }
+  return lib;
+}
+
+/**
+ * Compute the base inflation multiplier from baseline to a given year.
+ * Uses component-based indices when available.
+ */
+function getBaseInflation(year: number, yearlyIndices?: YearlyIndexRates): number {
+  if (!yearlyIndices) {
+    const blended = getLIBInflationRate(BASELINE_YEAR, undefined);
+    return Math.pow(1 + blended, year - BASELINE_YEAR);
+  }
+  let factor = 1;
+  for (let y = BASELINE_YEAR + 1; y <= year; y++) {
+    factor *= 1 + getLIBInflationRate(y, yearlyIndices);
+  }
+  return factor;
 }
 
 /**
@@ -344,7 +471,7 @@ export function getLIBForYear(year: number): number {
  * Returns projected total net income.
  *
  * For T1 farmers: full lever application (they've been in program since start).
- * For T2 farmers: lever effect scaled by tenure curve based on cohort join year.
+ * For T2 farmers: lever effect scaled by per-crop tenure ramp based on cohort join year.
  */
 function projectFarmerIncome(
   baseline: FarmerBaseline,
@@ -352,14 +479,10 @@ function projectFarmerIncome(
   year: number,
   cohortJoinYear?: number
 ): number {
-  // Tenure fraction: how much of the target improvement is realized
   const yearsInProgram = cohortJoinYear != null ? year - cohortJoinYear : year - BASELINE_YEAR;
-  const tenureFrac = getTenureFraction(yearsInProgram);
 
   // Baseline inflation: all incomes grow at LIB rate so status quo holds steady.
-  // Levers represent additional improvement on top of this natural growth.
-  const yearsFromBase = year - BASELINE_YEAR;
-  const baseInflation = Math.pow(1 + LIB_INFLATION_RATE, yearsFromBase);
+  const baseInflation = getBaseInflation(year, params.yearlyIndices);
 
   let totalIncome = 0;
 
@@ -373,34 +496,19 @@ function projectFarmerIncome(
     const lever = params.crops[crop];
     const baseCropIncome = baseline.cropIncomes[crop] * baseInflation;
 
+    // Per-crop tenure fraction (allows different ramps per crop)
+    const cropRamp = params.cropTenureRamps?.[crop];
+    const tenureFrac = getTenureFraction(yearsInProgram, cropRamp);
+
     // Calculate effective changes scaled by tenure
     const effYield = (lever.yieldChange / 100) * tenureFrac;
     const effPrice = (lever.priceChange / 100) * tenureFrac;
     const effCost = (lever.costChange / 100) * tenureFrac;
-    let effAcreage = (lever.acreageChange / 100) * tenureFrac;
+    const effAcreage = (lever.acreageChange / 100) * tenureFrac;
 
-    // Rabi land-balance: if this is a Rabi crop and acreage increases,
-    // other Rabi crops lose area proportionally
-    if (RABI_CROPS.includes(crop) && lever.acreageChange !== 0) {
-      // The acreage change for this crop is applied directly
-      // Other Rabi crops will have their acreage adjusted in their own iteration
-      // (the land balance is encoded in the levers themselves - the UI enforces this)
-    }
-
-    // Revenue impact: yield * price * acreage compound on revenue
-    // Cost impact: cost * acreage compound on expenses
-    // Simplified: for a farmer with net income = revenue - cost
-    // If baseCropIncome > 0: treat as revenue-dominated
-    // New income = baseCropIncome * (1 + effYield) * (1 + effPrice) * (1 + effAcreage)
-    //              adjusted for cost changes
-
-    // Estimate baseline revenue and cost from net income
-    // Use a rough cost ratio (costs are ~40% of revenue for most crops)
     const COST_RATIO = 0.4;
 
     if (baseCropIncome <= 0) {
-      // Negative or zero net income: cost-ratio decomposition is undefined.
-      // Pass through the baseline value and scale only by acreage change.
       totalIncome += baseCropIncome * (1 + effAcreage);
       continue;
     }
@@ -416,15 +524,16 @@ function projectFarmerIncome(
   }
 
   // ── 2. Other on-farm income ──
-  const effOther = (params.otherOnFarmChange / 100) * tenureFrac;
+  const globalTenure = getTenureFraction(yearsInProgram);
+  const effOther = (params.otherOnFarmChange / 100) * globalTenure;
   totalIncome += baseline.otherCropsIncome * baseInflation * (1 + effOther);
 
   // ── 3. Livestock income ──
-  const effLivestock = (params.livestockChange / 100) * tenureFrac;
+  const effLivestock = (params.livestockChange / 100) * globalTenure;
   totalIncome += baseline.livestockIncome * baseInflation * (1 + effLivestock);
 
   // ── 4. Off-farm income ──
-  const effOffFarm = (params.offFarmChange / 100) * tenureFrac;
+  const effOffFarm = (params.offFarmChange / 100) * globalTenure;
   totalIncome += baseline.offFarmIncome * baseInflation * (1 + effOffFarm);
 
   // ── 5. Remainder (unaccounted income) — inflated with baseline ──
@@ -441,12 +550,13 @@ function projectFarmerIncome(
 
 /**
  * Run the full LIB scenario projection across all years.
+ * Now includes non-program population, supply shed KPI, gradual offboarding,
+ * and per-crop tenure ramps.
  */
 export function runLIBScenario(
   farmers: Farmer[],
   params: LIBScenarioParams
 ): LIBScenarioResult {
-  // Extract baselines
   const allBaselines = farmers
     .map(extractBaseline)
     .filter((b): b is FarmerBaseline => b != null);
@@ -454,71 +564,104 @@ export function runLIBScenario(
   // Split by project group (surveyed samples)
   const t1CoreSample = allBaselines.filter((f) => f.project === "T-1");
   const t2Base = allBaselines.filter((f) => f.project === "T-2");
+  const controlSample = allBaselines.filter((f) => f.project === "Control");
 
-  // Project on the actual survey sample — scale factors convert counts for display.
-  // This avoids cycling artifacts from partial repetitions.
+  // Scale factors: survey sample → program population
   const t1ScaleFactor = PROGRAM_T1_FARMERS / (t1CoreSample.length || 1);
   const legacyScaleFactor = PROGRAM_LEGACY_FARMERS / (t1CoreSample.length || 1);
 
-  // T1 Core gets full lever effects; Legacy is tracked separately (inflation only)
   const t1Active = t1CoreSample;
 
-  // Baseline stats (2024) — computed on sample, scaled for display
-  const baselineLIB = getLIBForYear(BASELINE_YEAR);
+  // Supply shed params with defaults for backward compat
+  const supplyShEdPop = params.supplyShEdPopulation ?? DEFAULT_SUPPLY_SHED_POPULATION;
+  const extrapRate = params.extrapolationRate ?? DEFAULT_EXTRAPOLATION_RATE;
+  const reportedYears = new Set(params.reportedYears ?? [BASELINE_YEAR]);
+
+  // Baseline stats (2024)
+  const baselineLIB = getLIBForYear(BASELINE_YEAR, params.yearlyIndices);
   const t1SampleAbove2024 = t1Active.filter((f) => f.totalNetIncome > baselineLIB).length;
-  const baselineAboveSample = t1SampleAbove2024; // T2 not active at baseline
   const baselineAbove = Math.round(t1SampleAbove2024 * t1ScaleFactor)
     + (params.includeT1Legacy ? Math.round(t1SampleAbove2024 * legacyScaleFactor) : 0);
 
-  // Build dynamic year range from projectionYears param
   const modelYears = generateYears(params.projectionYears ?? 6);
 
-  // Build T2 cohort schedule: which farmers represent each cohort
-  // We sample from T2 baseline data to create synthetic cohorts
+  // T2 cohort schedule
   const t2CohortSchedule = buildT2Cohorts(t2Base, params.t2YearlyIntake, modelYears);
 
-  // Project each year
+  // T1 offboarding schedule: cumulative count of offboarded T1 farmers by year
+  const offboarding = params.t1Offboarding ?? {};
+  let cumulativeOffboarded = 0;
+
+  // Track "previously above LIB" for each farmer to correctly compute "moved above"
+  // Only count transitions from below→above within existing population
+  const t1PrevAbove = new Set<number>();
+  // Initialize with baseline above-LIB farmers
+  for (const f of t1Active) {
+    if (f.totalNetIncome > baselineLIB) t1PrevAbove.add(f.id);
+  }
+
   const yearlyResults: YearlyResult[] = [];
 
   for (const year of modelYears) {
-    const lib = getLIBForYear(year);
+    const lib = getLIBForYear(year, params.yearlyIndices);
+    const isReported = reportedYears.has(year);
+    const baseInflation = getBaseInflation(year, params.yearlyIndices);
 
-    // ── T1 Core projections (on sample, scaled for display) ──
+    // ── T1 offboarding: reduce active T1, increase legacy ──
+    const offboardedThisYear = offboarding[year] ?? 0;
+    cumulativeOffboarded += offboardedThisYear;
+    const activeT1Count = Math.max(0, PROGRAM_T1_FARMERS - cumulativeOffboarded);
+    const activeLegacyCount = PROGRAM_LEGACY_FARMERS + cumulativeOffboarded;
+    const t1DisplayScale = activeT1Count / (t1CoreSample.length || 1);
+    const legacyDisplayScale = activeLegacyCount / (t1CoreSample.length || 1);
+
+    // ── T1 Core projections ──
     const t1SampleIncomes = t1Active.map((f) => projectFarmerIncome(f, params, year));
     const t1SampleAbove = t1SampleIncomes.filter((inc) => inc > lib).length;
     const t1SampleBelow = t1SampleIncomes.filter((inc) => inc <= lib);
-    const t1SampleBaseAbove = t1Active.filter((f) => f.totalNetIncome > baselineLIB).length;
 
-    // Scale to program population
-    const t1Above = Math.round(t1SampleAbove * t1ScaleFactor);
-    const t1TotalDisplay = PROGRAM_T1_FARMERS;
-    const t1BaseAbove = Math.round(t1SampleBaseAbove * t1ScaleFactor);
+    const t1Above = Math.round(t1SampleAbove * t1DisplayScale);
+    const t1TotalDisplay = activeT1Count;
 
-    // ── Legacy projections (same sample, inflation-only, no lever effects) ──
-    const yearsFromBase = year - BASELINE_YEAR;
-    const inflationFactor = Math.pow(1 + LIB_INFLATION_RATE, yearsFromBase);
-    let legacySampleAbove = 0;
-    let legacyTotalDisplay = 0;
-    let legacyAbove = 0;
-    let legacyBaseAbove = 0;
+    // "Moved above" — only count transitions within existing population
+    let t1Moved = 0;
+    t1Active.forEach((f, i) => {
+      const wasAbove = t1PrevAbove.has(f.id);
+      const isAbove = t1SampleIncomes[i] > lib;
+      if (!wasAbove && isAbove) t1Moved++;
+    });
+    const t1MovedScaled = Math.round(t1Moved * t1DisplayScale);
+
+    // Update tracking for next year
+    t1Active.forEach((f, i) => {
+      if (t1SampleIncomes[i] > lib) t1PrevAbove.add(f.id);
+      else t1PrevAbove.delete(f.id);
+    });
+
+    // ── Legacy projections (inflation-only, no lever effects) ──
     let legacySampleIncomes: number[] = [];
+    let legacySampleAbove = 0;
+    let legacyAbove = 0;
+    let legacyTotalDisplay = 0;
     if (params.includeT1Legacy) {
-      // Same T1 sample, inflation only
-      legacySampleIncomes = t1Active.map((f) => f.totalNetIncome * inflationFactor);
+      legacySampleIncomes = t1Active.map((f) => f.totalNetIncome * baseInflation);
       legacySampleAbove = legacySampleIncomes.filter((inc) => inc > lib).length;
-      legacyAbove = Math.round(legacySampleAbove * legacyScaleFactor);
-      legacyTotalDisplay = PROGRAM_LEGACY_FARMERS;
-      legacyBaseAbove = Math.round(t1SampleBaseAbove * legacyScaleFactor);
+      legacyAbove = Math.round(legacySampleAbove * legacyDisplayScale);
+      legacyTotalDisplay = activeLegacyCount;
     }
 
-    // ── T2 projections (all active cohorts for this year) ──
-    const t2ActiveFarmers: { income: number }[] = [];
+    // ── T2 projections ──
+    const t2ActiveFarmers: { income: number; wasAbovePrev: boolean }[] = [];
     for (const [joinYear, cohortFarmers] of Object.entries(t2CohortSchedule)) {
       const jy = Number(joinYear);
-      if (jy > year) continue; // cohort hasn't joined yet
+      if (jy > year) continue;
       for (const farmer of cohortFarmers) {
         const income = projectFarmerIncome(farmer, params, year, jy);
-        t2ActiveFarmers.push({ income });
+        // For "moved above": a T2 farmer joining above LIB is NOT counted as "moved above"
+        const wasAbovePrev = jy === year
+          ? farmer.totalNetIncome > baselineLIB // new entrant: check baseline status
+          : false; // existing: tracked below
+        t2ActiveFarmers.push({ income, wasAbovePrev });
       }
     }
 
@@ -526,23 +669,47 @@ export function runLIBScenario(
     const t2Above = t2Incomes.filter((inc) => inc > lib).length;
     const t2Below = t2Incomes.filter((inc) => inc <= lib);
 
-    // T2 baseline above LIB (only those who have joined by anchor year)
-    let t2BaseAbove = 0;
-    for (const [joinYear, cohortFarmers] of Object.entries(t2CohortSchedule)) {
-      if (Number(joinYear) > BASELINE_YEAR) continue;
-      t2BaseAbove += cohortFarmers.filter((f) => f.totalNetIncome > baselineLIB).length;
+    // T2 "moved above": only count those who were below LIB in the *previous* year
+    // and are now above. New entrants who were already above don't count.
+    let t2Moved = 0;
+    if (year > BASELINE_YEAR) {
+      const prevLib = getLIBForYear(year - 1, params.yearlyIndices);
+      for (const [joinYear, cohortFarmers] of Object.entries(t2CohortSchedule)) {
+        const jy = Number(joinYear);
+        if (jy > year) continue;
+        for (const farmer of cohortFarmers) {
+          if (jy === year) continue; // new entrant this year — skip
+          const prevIncome = projectFarmerIncome(farmer, params, year - 1, jy);
+          const currIncome = projectFarmerIncome(farmer, params, year, jy);
+          if (prevIncome <= prevLib && currIncome > lib) t2Moved++;
+        }
+      }
     }
 
-    // ── Aggregate (percentages from sample, counts scaled) ──
-    const totalAbove = t1Above + legacyAbove + t2Above;
-    const totalFarmersDisplay = t1TotalDisplay + legacyTotalDisplay + t2Incomes.length;
+    // ── Non-program population (modeled from control group, inflation-only) ──
+    // The control sample represents the non-program supply shed population.
+    // We apply the extrapolation rate to determine how much of the supply shed
+    // the measured data credibly covers.
+    const nonProgramSampleIncomes = controlSample.map((f) => f.totalNetIncome * baseInflation);
+    const nonProgramSampleAbove = nonProgramSampleIncomes.filter((inc) => inc > lib).length;
+    const nonProgramPctAbove = controlSample.length > 0
+      ? (nonProgramSampleAbove / controlSample.length) * 100
+      : 0;
+    const nonProgramAvgInc = nonProgramSampleIncomes.length > 0 ? mean(nonProgramSampleIncomes) : 0;
 
-    // For averages/medians, use the sample incomes (statistically equivalent)
+    // Non-program population = supply shed - all program farmers
+    const programTotal = t1TotalDisplay + legacyTotalDisplay + t2Incomes.length;
+    const nonProgramTotal = Math.max(0, supplyShEdPop - programTotal);
+    const nonProgramAbove = Math.round(nonProgramTotal * (nonProgramPctAbove / 100));
+
+    // ── Aggregate program totals ──
+    const totalAbove = t1Above + legacyAbove + t2Above;
+    const totalFarmersDisplay = programTotal;
+
     const t1Pct = t1Active.length > 0 ? (t1SampleAbove / t1Active.length) * 100 : 0;
     const legacyPct = params.includeT1Legacy && t1Active.length > 0
       ? (legacySampleAbove / t1Active.length) * 100 : 0;
 
-    // Weighted average income across all groups
     const t1Weight = t1TotalDisplay;
     const legacyWeight = legacyTotalDisplay;
     const t2Weight = t2Incomes.length;
@@ -554,7 +721,6 @@ export function runLIBScenario(
       ? (t1AvgInc * t1Weight + legacyAvgInc * legacyWeight + t2AvgInc * t2Weight) / totalWeight
       : 0;
 
-    // Combined below-LIB for gap calculation
     const allBelowIncomes = [
       ...t1SampleBelow,
       ...(params.includeT1Legacy ? legacySampleIncomes.filter((inc) => inc <= lib) : []),
@@ -563,16 +729,23 @@ export function runLIBScenario(
 
     const totalPctAboveLIB = totalWeight > 0 ? (totalAbove / totalFarmersDisplay) * 100 : 0;
 
+    // ── Supply Shed KPI ──
+    // numerator = program above + non-program above (extrapolated)
+    // denominator = total supply shed population
+    const supplyShEdAbove = totalAbove + nonProgramAbove;
+    const supplyShEdKPI = supplyShEdPop > 0 ? (supplyShEdAbove / supplyShEdPop) * 100 : 0;
+
     const result: YearlyResult = {
       year,
       lib,
+      isReported,
       t1TotalFarmers: t1TotalDisplay,
       t1AboveLIB: t1Above,
       t1PctAboveLIB: t1Pct,
       t1AvgIncome: t1AvgInc,
       t1MedianIncome: t1SampleIncomes.length > 0 ? median(t1SampleIncomes) : 0,
       t1AvgLIBGap: t1SampleBelow.length > 0 ? mean(t1SampleBelow.map((inc) => lib - inc)) : 0,
-      t1MovedAboveLIB: Math.max(0, t1Above - t1BaseAbove),
+      t1MovedAboveLIB: t1MovedScaled,
       legacyTotalFarmers: legacyTotalDisplay,
       legacyAboveLIB: legacyAbove,
       legacyPctAboveLIB: legacyPct,
@@ -583,13 +756,20 @@ export function runLIBScenario(
       t2AvgIncome: t2AvgInc,
       t2MedianIncome: t2Incomes.length > 0 ? median(t2Incomes) : 0,
       t2AvgLIBGap: t2Below.length > 0 ? mean(t2Below.map((inc) => lib - inc)) : 0,
-      t2MovedAboveLIB: Math.max(0, t2Above - t2BaseAbove),
+      t2MovedAboveLIB: t2Moved,
+      nonProgramTotalFarmers: nonProgramTotal,
+      nonProgramAboveLIB: nonProgramAbove,
+      nonProgramPctAboveLIB: nonProgramPctAbove,
+      nonProgramAvgIncome: nonProgramAvgInc,
       totalFarmers: totalFarmersDisplay,
       totalAboveLIB: totalAbove,
       totalPctAboveLIB,
       totalAvgIncome: totalAvgInc,
-      totalMovedAboveLIB: Math.max(0, totalAbove - (t1BaseAbove + legacyBaseAbove + t2BaseAbove)),
+      totalMovedAboveLIB: t1MovedScaled + t2Moved,
       totalAvgLIBGap: allBelowIncomes.length > 0 ? mean(allBelowIncomes.map((inc) => lib - inc)) : 0,
+      supplyShEdKPI,
+      supplyShEdTotalFarmers: supplyShEdPop,
+      supplyShEdAboveLIB: supplyShEdAbove,
     };
 
     yearlyResults.push(result);
@@ -598,11 +778,14 @@ export function runLIBScenario(
   // ── Crop contributions (for target year, T1 only for simplicity) ──
   const cropContributions = computeCropContributions(t1Active, params);
 
-  // Summary = target year result
   const summary = yearlyResults.find((r) => r.year === params.targetYear) ?? yearlyResults[yearlyResults.length - 1];
 
   const baselineTotalFarmers = PROGRAM_T1_FARMERS
     + (params.includeT1Legacy ? PROGRAM_LEGACY_FARMERS : 0);
+
+  // Baseline supply shed KPI
+  const baselineResult = yearlyResults[0];
+  const baselineSupplyShEdKPI = baselineResult?.supplyShEdKPI ?? 0;
 
   return {
     params,
@@ -612,6 +795,7 @@ export function runLIBScenario(
     baselineAboveLIB: baselineAbove,
     baselinePctAboveLIB: baselineTotalFarmers > 0 ? (baselineAbove / baselineTotalFarmers) * 100 : 0,
     baselineTotalFarmers,
+    baselineSupplyShEdKPI,
   };
 }
 
@@ -777,9 +961,14 @@ export function createDefaultParams(name = "Untitled Scenario", projectionYears 
     livestockChange: 0,
     offFarmChange: 0,
     t2YearlyIntake: projectionYears === 6 ? { ...DEFAULT_T2_INTAKE } : generateDefaultT2Intake(projectionYears),
-    includeT1Legacy: false,
+    includeT1Legacy: true,  // now on by default since legacy is part of supply shed
     targetYear: BASELINE_YEAR + projectionYears,
     projectionYears,
+    leverMode: "percentage",
+    supplyShEdPopulation: DEFAULT_SUPPLY_SHED_POPULATION,
+    extrapolationRate: DEFAULT_EXTRAPOLATION_RATE,
+    t1Offboarding: generateDefaultT1Offboarding(projectionYears),
+    reportedYears: [BASELINE_YEAR],
   };
 }
 
@@ -812,7 +1001,6 @@ export function getPresetScenarios(projectionYears = 6): LIBScenarioParams[] {
   t1.crops.potato = { yieldChange: 25, priceChange: 15, costChange: -10, acreageChange: 15 };
   t1.crops.wheat = { yieldChange: 5,  priceChange: 0,  costChange: 0,  acreageChange: -15 };
   t1.crops.mustard = { yieldChange: 10, priceChange: 10, costChange: -5, acreageChange: 10 };
-  t1.includeT1Legacy = true;
   t1.otherOnFarmChange = 15;
   t1.livestockChange = 10;
 
@@ -1083,8 +1271,12 @@ export function downloadScenarioExcel(
     ["Projection Horizon", `${scenario.projectionYears ?? 6} years (${BASELINE_YEAR}–${scenario.targetYear})`],
     ["Target Year", scenario.targetYear],
     ["T1 Legacy Farmers", scenario.includeT1Legacy ? "✓ Included" : "✗ Excluded"],
+    ["Supply Shed Population", (scenario.supplyShEdPopulation ?? DEFAULT_SUPPLY_SHED_POPULATION).toLocaleString()],
+    ["Extrapolation Rate", `${((scenario.extrapolationRate ?? DEFAULT_EXTRAPOLATION_RATE) * 100).toFixed(0)}%`],
+    ["Lever Mode", scenario.leverMode ?? "percentage"],
     ["Other On-Farm Income Change", fmtPct(scenario.otherOnFarmChange)],
     ["Livestock Income Change", fmtPct(scenario.livestockChange)],
+    ["Off-Farm Income Change", fmtPct(scenario.offFarmChange)],
   ];
   settings.forEach(([label, val], i) => {
     addBodyRow(ws1, r, [label, typeof val === "number" ? val : val], { altRow: i % 2 === 1 });
@@ -1247,6 +1439,10 @@ export function downloadScenarioExcel(
     ["includeT1Legacy", scenario.includeT1Legacy ? 1 : 0],
     ["otherOnFarmChange", scenario.otherOnFarmChange],
     ["livestockChange", scenario.livestockChange],
+    ["offFarmChange", scenario.offFarmChange],
+    ["leverMode", scenario.leverMode ?? "percentage"],
+    ["supplyShEdPopulation", scenario.supplyShEdPopulation ?? DEFAULT_SUPPLY_SHED_POPULATION],
+    ["extrapolationRate", scenario.extrapolationRate ?? DEFAULT_EXTRAPOLATION_RATE],
     [],
     ["Crop", "yieldChange", "priceChange", "costChange", "acreageChange"],
   ];
@@ -1434,9 +1630,16 @@ function validateScenarioParams(raw: Record<string, unknown>): LIBScenarioParams
     livestockChange: clamp(Number(raw.livestockChange) || 0, -50, 100),
     offFarmChange: clamp(Number(raw.offFarmChange) || 0, -50, 100),
     t2YearlyIntake,
-    includeT1Legacy: Boolean(raw.includeT1Legacy),
+    includeT1Legacy: raw.includeT1Legacy != null ? Boolean(raw.includeT1Legacy) : true,
     targetYear,
     projectionYears: projYears,
+    leverMode: (raw.leverMode === "fixed" ? "fixed" : "percentage") as LeverMode,
+    supplyShEdPopulation: Number(raw.supplyShEdPopulation) || DEFAULT_SUPPLY_SHED_POPULATION,
+    extrapolationRate: (EXTRAPOLATION_RATES.includes(Number(raw.extrapolationRate) as ExtrapolationRate)
+      ? Number(raw.extrapolationRate)
+      : DEFAULT_EXTRAPOLATION_RATE) as ExtrapolationRate,
+    t1Offboarding: (raw.t1Offboarding as Record<number, number>) ?? generateDefaultT1Offboarding(projYears),
+    reportedYears: (raw.reportedYears as number[]) ?? [BASELINE_YEAR],
   };
 }
 

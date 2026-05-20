@@ -235,19 +235,22 @@ export default function SustainabilitySection({ data }: { data: import("@/lib/da
           Methodology Note
         </div>
         <p>
-          Carbon emissions are estimated using activity-based emission factors scaled to farm size (acres) and household size, aligned with{" "}
+          Carbon emissions are estimated using a component-based model with crop-specific emission factors from published research on the{" "}
+          <span className="font-medium text-[var(--text-secondary)]">Indo-Gangetic Plains</span>, aligned with{" "}
           <span className="font-medium text-[var(--text-secondary)]">IPCC 2006 Tier 1</span>{" "}
-          guidelines for national greenhouse gas inventories in the agriculture sector.
+          guidelines. Each farmer{"'"}s footprint is calculated from their actual crop mix, farm size, and household composition.
         </p>
         <ul className="mt-1.5 space-y-0.5 list-disc list-inside">
-          <li><span className="font-medium text-[var(--text-secondary)]">Soil carbon:</span> Tillage and fertilizer application factors (10{"\u2013"}15 tCO{"\u2082"}e/acre/yr)</li>
-          <li><span className="font-medium text-[var(--text-secondary)]">Transport & electricity:</span> Regional averages for smallholder agriculture in South Asia</li>
-          <li><span className="font-medium text-[var(--text-secondary)]">Pesticide & misc:</span> Input-proportional emission factors per acre</li>
-          <li><span className="font-medium text-[var(--text-secondary)]">Household:</span> Per-capita domestic emissions (1{"\u2013"}3 tCO{"\u2082"}e/member/yr)</li>
-          <li><span className="font-medium text-[var(--text-secondary)]">Tree offset:</span> Agroforestry sequestration rates (10{"\u2013"}35 tCO{"\u2082"}e/acre/yr) from published literature</li>
+          <li><span className="font-medium text-[var(--text-secondary)]">Soil/crop emissions:</span> Crop-specific factors per hectare {"\u2014"} Rice: 6.09 (incl. CH{"\u2084"} from paddy), Potato: 7.18, Mustard: 1.50, Mint: 1.20, Wheat: 1.17 tCO{"\u2082"}e/ha (Cool Farm Tool; PMC11087962; Indian AFOLU review)</li>
+          <li><span className="font-medium text-[var(--text-secondary)]">Irrigation electricity:</span> 0.48 tCO{"\u2082"}e/ha based on groundwater pumping at 40 kgCO{"\u2082"}/ha per meter depth {"\u00D7"} 12m regional avg (trans-IGP study, Springer 2016)</li>
+          <li><span className="font-medium text-[var(--text-secondary)]">Transportation:</span> 0.15 tCO{"\u2082"}e/ha regional average for smallholder input/output transport</li>
+          <li><span className="font-medium text-[var(--text-secondary)]">Pesticide:</span> 0.08 tCO{"\u2082"}e/ha manufacturing and application emissions</li>
+          <li><span className="font-medium text-[var(--text-secondary)]">Farm operations:</span> 0.40 tCO{"\u2082"}e/ha for machinery, tillage, and residue management</li>
+          <li><span className="font-medium text-[var(--text-secondary)]">Tree offset:</span> 1.50 tCO{"\u2082"}e/ha/yr sequestration from scattered farm trees in IGP (conservative; dedicated agroforestry = 3.7{"\u2013"}29.3 tCO{"\u2082"}e/ha/yr per MDPI meta-analysis)</li>
+          <li><span className="font-medium text-[var(--text-secondary)]">Household:</span> 1.50 tCO{"\u2082"}e/person/yr India rural per-capita domestic emissions</li>
         </ul>
         <p className="mt-1.5">
-          All values are reported in tonnes of CO{"\u2082"} equivalent (tCO{"\u2082"}e) per year. Emission factors are consistent with IPCC default values for tropical/subtropical agriculture and may be refined with site-specific measurements.
+          All values in tCO{"\u2082"}e per year with {"\u00B1"}15% farm-level perturbation (standard for Tier 1 estimates). Crop emissions are weighted by each farmer{"'"}s actual planted acreage across mint, rice, potato, mustard, and wheat.
         </p>
       </div>
     </div>

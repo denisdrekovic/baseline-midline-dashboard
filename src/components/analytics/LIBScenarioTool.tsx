@@ -26,6 +26,8 @@ import {
   Save,
   FolderOpen,
   Check,
+  Globe,
+  Settings2,
 } from "lucide-react";
 import { useGeo } from "@/providers/GeoProvider";
 import {
@@ -33,14 +35,22 @@ import {
   type ModeledCrop,
   type CropLever,
   type ModelYear,
+  type ExtrapolationRate,
+  type LeverMode,
+  type CropTenureRamps,
   MODELED_CROPS,
   RABI_CROPS,
   BASELINE_YEAR,
   MAX_T2_FARMERS,
   MIN_PROJECTION_YEARS,
   MAX_PROJECTION_YEARS,
+  DEFAULT_SUPPLY_SHED_POPULATION,
+  EXTRAPOLATION_RATES,
+  DEFAULT_TENURE_CURVE,
+  PROGRAM_T1_FARMERS,
   generateYears,
   generateDefaultT2Intake,
+  generateDefaultT1Offboarding,
   createDefaultParams,
   runLIBScenario,
   loadSavedScenarios,
@@ -72,16 +82,48 @@ import {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+function FixedValueInput({
+  label,
+  value,
+  onChange,
+  color,
+  unit,
+}: {
+  label: string;
+  value: number | undefined;
+  onChange: (v: number) => void;
+  color: string;
+  unit: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10px] text-[var(--text-tertiary)] w-8 shrink-0">{label}</span>
+      <input
+        type="number"
+        step={10}
+        value={value ?? ""}
+        onChange={(e) => onChange(Number(e.target.value))}
+        placeholder="—"
+        className="flex-1 px-2 py-0.5 rounded text-[11px] font-mono outline-none"
+        style={{ background: "var(--card-bg)", border: `1px solid ${value != null ? color : "var(--card-border)"}`, color: "var(--text-primary)" }}
+      />
+      <span className="text-[9px] text-[var(--text-tertiary)] w-10 shrink-0 text-right">{unit}</span>
+    </div>
+  );
+}
+
 function CropLeverGroup({
   crop,
   lever,
   onChange,
   isRabi,
+  leverMode,
 }: {
   crop: ModeledCrop;
   lever: CropLever;
   onChange: (field: keyof CropLever, value: number) => void;
   isRabi: boolean;
+  leverMode: LeverMode;
 }) {
   const color = CROP_COLORS[crop] || "#888";
   const name = CROP_NAMES[crop] || crop;
@@ -97,10 +139,21 @@ function CropLeverGroup({
           </span>
         )}
       </div>
-      <LeverSlider label="Yield" value={lever.yieldChange} onChange={(v) => onChange("yieldChange", v)} color={color} min={-50} max={100} />
-      <LeverSlider label="Price" value={lever.priceChange} onChange={(v) => onChange("priceChange", v)} color={color} min={-50} max={100} />
-      <LeverSlider label="Cost" value={lever.costChange} onChange={(v) => onChange("costChange", v)} color={color} min={-50} max={100} invert />
-      <LeverSlider label="Area" value={lever.acreageChange} onChange={(v) => onChange("acreageChange", v)} color={color} min={-50} max={100} />
+      {leverMode === "percentage" ? (
+        <>
+          <LeverSlider label="Yield" value={lever.yieldChange} onChange={(v) => onChange("yieldChange", v)} color={color} min={-50} max={100} />
+          <LeverSlider label="Price" value={lever.priceChange} onChange={(v) => onChange("priceChange", v)} color={color} min={-50} max={100} />
+          <LeverSlider label="Cost" value={lever.costChange} onChange={(v) => onChange("costChange", v)} color={color} min={-50} max={100} invert />
+          <LeverSlider label="Area" value={lever.acreageChange} onChange={(v) => onChange("acreageChange", v)} color={color} min={-50} max={100} />
+        </>
+      ) : (
+        <>
+          <FixedValueInput label="Yield" value={lever.yieldFixed} onChange={(v) => onChange("yieldFixed", v)} color={color} unit="kg/acre" />
+          <FixedValueInput label="Price" value={lever.priceFixed} onChange={(v) => onChange("priceFixed", v)} color={color} unit="₹/kg" />
+          <FixedValueInput label="Cost" value={lever.costFixed} onChange={(v) => onChange("costFixed", v)} color={color} unit="₹/acre" />
+          <FixedValueInput label="Area" value={lever.acreageFixed} onChange={(v) => onChange("acreageFixed", v)} color={color} unit="acres" />
+        </>
+      )}
     </div>
   );
 }
@@ -524,6 +577,188 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
   );
 }
 
+// ─── Tenure Ramp Modal ───────────────────────────────────────────────────────
+
+function TenureRampModal({
+  cropTenureRamps,
+  onSave,
+  onClose,
+}: {
+  cropTenureRamps?: CropTenureRamps;
+  onSave: (ramps: CropTenureRamps) => void;
+  onClose: () => void;
+}) {
+  const maxYears = 6;
+  const years = Array.from({ length: maxYears + 1 }, (_, i) => i); // 0..6
+
+  // Local state: deep copy of ramps or defaults
+  const [ramps, setRamps] = useState<Record<ModeledCrop, Record<number, number>>>(() => {
+    const result = {} as Record<ModeledCrop, Record<number, number>>;
+    for (const crop of MODELED_CROPS) {
+      result[crop] = { ...DEFAULT_TENURE_CURVE, ...(cropTenureRamps?.[crop] ?? {}) };
+    }
+    return result;
+  });
+
+  const updateValue = (crop: ModeledCrop, year: number, value: number) => {
+    setRamps((prev) => ({
+      ...prev,
+      [crop]: { ...prev[crop], [year]: Math.max(0, Math.min(1, value)) },
+    }));
+  };
+
+  const resetToDefault = () => {
+    const result = {} as Record<ModeledCrop, Record<number, number>>;
+    for (const crop of MODELED_CROPS) {
+      result[crop] = { ...DEFAULT_TENURE_CURVE };
+    }
+    setRamps(result);
+  };
+
+  const handleSave = () => {
+    // Only save crops that differ from default
+    const diff: CropTenureRamps = {};
+    for (const crop of MODELED_CROPS) {
+      const isCustom = years.some((y) => ramps[crop][y] !== (DEFAULT_TENURE_CURVE[y] ?? 1));
+      if (isCustom) diff[crop] = { ...ramps[crop] };
+    }
+    onSave(Object.keys(diff).length > 0 ? diff : undefined as unknown as CropTenureRamps);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        transition={{ duration: 0.2 }}
+        className="relative w-full max-w-3xl rounded-2xl overflow-hidden shadow-2xl"
+        style={{ background: "var(--color-surface-1)", border: "1px solid var(--card-border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: "1px solid var(--card-border)" }}>
+          <div className="flex items-center gap-2">
+            <TrendingUp size={16} className="text-[var(--color-accent)]" />
+            <h3 className="text-sm font-bold text-[var(--text-primary)]">T2 Tenure Improvement Ramps</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={resetToDefault} className="text-[10px] px-2 py-1 rounded hover:bg-[var(--card-bg-hover)] text-[var(--text-secondary)]">
+              <RotateCcw size={10} className="inline mr-1" />Reset to Default
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[var(--card-bg-hover)]">
+              <X size={16} className="text-[var(--text-tertiary)]" />
+            </button>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
+          <p className="text-[11px] text-[var(--text-secondary)] mb-4 leading-relaxed">
+            Define how much of each crop&apos;s target improvement a T2 farmer realizes based on years in the program.
+            Year 0 = just joined (0%), Year 5+ = full effect (100%). Each crop can have a different adoption curve.
+          </p>
+
+          <div className="overflow-x-auto rounded-xl" style={{ border: "1px solid var(--card-border)" }}>
+            <table className="w-full text-[11px]">
+              <thead>
+                <tr style={{ background: "var(--card-bg)" }}>
+                  <th className="text-left py-2 px-3 text-[var(--text-tertiary)] font-semibold">Crop</th>
+                  {years.map((y) => (
+                    <th key={y} className="text-center py-2 px-3 text-[var(--text-tertiary)] font-semibold font-mono">
+                      Yr {y}{y >= 5 ? "+" : ""}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {MODELED_CROPS.map((crop) => {
+                  const color = CROP_COLORS[crop] || "#888";
+                  return (
+                    <tr key={crop} className="border-t border-[var(--card-border)]">
+                      <td className="py-2 px-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{ background: color }} />
+                          <span className="font-medium text-[var(--text-primary)]">{CROP_NAMES[crop] || crop}</span>
+                        </div>
+                      </td>
+                      {years.map((y) => {
+                        const val = ramps[crop][y] ?? (y >= 5 ? 1 : 0);
+                        const isDefault = val === (DEFAULT_TENURE_CURVE[y] ?? 1);
+                        return (
+                          <td key={y} className="py-1.5 px-1.5 text-center">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={5}
+                              value={Math.round(val * 100)}
+                              onChange={(e) => updateValue(crop, y, Number(e.target.value) / 100)}
+                              className="w-14 px-1.5 py-1 rounded text-center text-[11px] font-mono outline-none"
+                              style={{
+                                background: isDefault ? "var(--card-bg)" : `${color}15`,
+                                border: `1px solid ${isDefault ? "var(--card-border)" : color}`,
+                                color: "var(--text-primary)",
+                              }}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Visual preview — mini bar chart for each crop */}
+          <div className="mt-4 grid grid-cols-5 gap-2">
+            {MODELED_CROPS.map((crop) => {
+              const color = CROP_COLORS[crop] || "#888";
+              return (
+                <div key={crop} className="text-center">
+                  <span className="text-[9px] font-semibold" style={{ color }}>{CROP_NAMES[crop]}</span>
+                  <div className="flex items-end justify-center gap-px mt-1 h-8">
+                    {years.map((y) => {
+                      const val = ramps[crop][y] ?? (y >= 5 ? 1 : 0);
+                      return (
+                        <div
+                          key={y}
+                          className="w-2 rounded-t-sm"
+                          style={{ height: `${Math.max(2, val * 100)}%`, background: color, opacity: val > 0 ? 0.8 : 0.2 }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: "1px solid var(--card-border)" }}>
+          <button onClick={onClose} className="px-4 py-1.5 rounded-lg text-[11px] font-semibold hover:bg-[var(--card-bg-hover)] text-[var(--text-secondary)]">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className="px-4 py-1.5 rounded-lg text-[11px] font-semibold text-white"
+            style={{ background: "var(--color-accent)" }}
+          >
+            Apply Ramps
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 type ScenarioMode = "builder" | "comparison";
@@ -542,6 +777,7 @@ export default function LIBScenarioTool() {
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [showDetailTable, setShowDetailTable] = useState(false);
   const [showMethodology, setShowMethodology] = useState(false);
+  const [showTenureRamps, setShowTenureRamps] = useState(false);
 
   // Dynamic years derived from projectionYears
   const modelYears = useMemo(
@@ -562,7 +798,8 @@ export default function LIBScenarioTool() {
   }, []);
 
   const resetAll = useCallback(() => {
-    setParams(createDefaultParams(params.name, params.projectionYears ?? 6));
+    const p = createDefaultParams(params.name, params.projectionYears ?? 6);
+    setParams(p);
   }, [params.name, params.projectionYears]);
 
   const handleSave = useCallback(() => {
@@ -597,13 +834,16 @@ export default function LIBScenarioTool() {
   }, []);
 
   const hasChanges = useMemo(() => {
-    const defaults = createDefaultParams();
+    const defaults = createDefaultParams("", params.projectionYears ?? 6);
     return JSON.stringify(params.crops) !== JSON.stringify(defaults.crops) ||
       params.otherOnFarmChange !== 0 ||
       params.livestockChange !== 0 ||
       params.offFarmChange !== 0 ||
-      params.includeT1Legacy !== false ||
-      JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(generateDefaultT2Intake(params.projectionYears ?? 6));
+      !params.includeT1Legacy ||
+      JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(generateDefaultT2Intake(params.projectionYears ?? 6)) ||
+      params.supplyShEdPopulation !== DEFAULT_SUPPLY_SHED_POPULATION ||
+      params.extrapolationRate !== 0.5 ||
+      params.leverMode !== "percentage";
   }, [params]);
 
   const t2Total = useMemo(
@@ -618,10 +858,12 @@ export default function LIBScenarioTool() {
         year: yr.year.toString(),
         "T1 % Above LIB": Number(yr.t1PctAboveLIB.toFixed(1)),
         "T2 % Above LIB": Number(yr.t2PctAboveLIB.toFixed(1)),
-        "Total % Above LIB": Number(yr.totalPctAboveLIB.toFixed(1)),
+        "Non-Program % Above LIB": Number(yr.nonProgramPctAboveLIB.toFixed(1)),
+        "Supply Shed KPI": Number(yr.supplyShEdKPI.toFixed(1)),
         "LIB Benchmark": yr.lib,
         "T1 Avg Income": yr.t1AvgIncome,
         "T2 Avg Income": yr.t2AvgIncome,
+        isReported: yr.isReported,
       })),
     [result]
   );
@@ -633,7 +875,8 @@ export default function LIBScenarioTool() {
     fieldDelays: {
       "T1 % Above LIB": 0,     "T1 Avg Income": 0,
       "T2 % Above LIB": 100,   "T2 Avg Income": 100,
-      "Total % Above LIB": 200, "LIB Benchmark": 0,
+      "Non-Program % Above LIB": 100, "Supply Shed KPI": 200,
+      "LIB Benchmark": 0,
     },
   });
 
@@ -736,6 +979,7 @@ export default function LIBScenarioTool() {
                   projectionYears: newYrs,
                   targetYear: newTarget,
                   t2YearlyIntake: generateDefaultT2Intake(newYrs),
+                  t1Offboarding: generateDefaultT1Offboarding(newYrs),
                 }));
               }}
               className="px-1 py-0.5 rounded text-[9px] font-mono font-bold outline-none cursor-pointer"
@@ -841,18 +1085,18 @@ export default function LIBScenarioTool() {
         {/* ── Main content area (scrollable) ── */}
         <div className="flex-1 min-w-0 overflow-y-auto no-scrollbar p-4 space-y-3">
           {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-2">
+            {/* Supply Shed KPI — the headline number */}
             <KPICard
-              label="Above LIB"
-              numericValue={activeResult.totalPctAboveLIB}
+              label="Supply Shed KPI"
+              numericValue={activeResult.supplyShEdKPI}
               formatter={formatPercent}
-              subValue={`${formatNumber(activeResult.totalAboveLIB)} of ${formatNumber(activeResult.totalFarmers)} HH`}
-              icon={Target}
-              color="#00A17D"
+              subValue={`${formatNumber(activeResult.supplyShEdAboveLIB)} of ${formatNumber(activeResult.supplyShEdTotalFarmers)} HH`}
+              icon={Globe}
+              color="#2A1055"
               trend={activeResult.totalMovedAboveLIB > 0 ? { value: activeResult.totalMovedAboveLIB, formatter: (n) => `${formatNumber(n)} moved above`, prefix: "+", positive: true } : undefined}
             />
             <KPICard label="Avg Income" numericValue={activeResult.totalAvgIncome} formatter={formatUSD} subValue={`LIB: ${formatUSD(activeResult.lib)}`} icon={DollarSign} color="#007BFF" />
-            <KPICard label="Avg LIB Gap" numericValue={activeResult.totalAvgLIBGap} formatter={formatUSD} subValue="Among below-LIB HH" icon={BarChart3} color="#FB8500" />
             <KPICard
               label="T1 Above LIB"
               numericValue={activeResult.t1PctAboveLIB}
@@ -869,6 +1113,15 @@ export default function LIBScenarioTool() {
               icon={Layers}
               color="#6F42C1"
             />
+            <KPICard
+              label="Non-Program"
+              numericValue={activeResult.nonProgramPctAboveLIB}
+              formatter={formatPercent}
+              subValue={`${formatNumber(activeResult.nonProgramAboveLIB)} of ${formatNumber(activeResult.nonProgramTotalFarmers)}`}
+              icon={Globe}
+              color="#FFB703"
+            />
+            <KPICard label="Avg LIB Gap" numericValue={activeResult.totalAvgLIBGap} formatter={formatUSD} subValue="Among below-LIB HH" icon={BarChart3} color="#FB8500" />
           </div>
 
           {/* Charts */}
@@ -902,78 +1155,109 @@ export default function LIBScenarioTool() {
                         <th className="text-right py-2 px-3 font-semibold" style={{ color: "#007BFF" }}>T1</th>
                         {params.includeT1Legacy && <th className="text-right py-2 px-3 font-semibold" style={{ color: "#E67E22" }}>Legacy</th>}
                         <th className="text-right py-2 px-3 font-semibold" style={{ color: "#6F42C1" }}>T2</th>
-                        <th className="text-right py-2 px-3 font-semibold" style={{ color: "#00A17D" }}>Total</th>
+                        <th className="text-right py-2 px-3 font-semibold" style={{ color: "#FFB703" }}>Non-Prog</th>
+                        <th className="text-right py-2 px-3 font-semibold" style={{ color: "#2A1055" }}>Supply Shed</th>
                       </tr>
                     </thead>
                     <tbody>
                       {[
-                        { label: "Total Farmers", t1: formatNumber(activeResult.t1TotalFarmers), legacy: formatNumber(activeResult.legacyTotalFarmers), t2: formatNumber(activeResult.t2TotalFarmers), total: formatNumber(activeResult.totalFarmers) },
-                        { label: "% Above LIB", t1: formatPercent(activeResult.t1PctAboveLIB), legacy: formatPercent(activeResult.legacyPctAboveLIB), t2: formatPercent(activeResult.t2PctAboveLIB), total: formatPercent(activeResult.totalPctAboveLIB) },
-                        { label: "# Above LIB", t1: formatNumber(activeResult.t1AboveLIB), legacy: formatNumber(activeResult.legacyAboveLIB), t2: formatNumber(activeResult.t2AboveLIB), total: formatNumber(activeResult.totalAboveLIB) },
-                        { label: "Moved Above LIB", t1: `+${formatNumber(activeResult.t1MovedAboveLIB)}`, legacy: "\u2014", t2: `+${formatNumber(activeResult.t2MovedAboveLIB)}`, total: `+${formatNumber(activeResult.totalMovedAboveLIB)}` },
-                        { label: "Avg Income", t1: formatUSD(activeResult.t1AvgIncome), legacy: formatUSD(activeResult.legacyAvgIncome), t2: formatUSD(activeResult.t2AvgIncome), total: formatUSD(activeResult.totalAvgIncome) },
-                        { label: "Median Income", t1: formatUSD(activeResult.t1MedianIncome), legacy: "\u2014", t2: formatUSD(activeResult.t2MedianIncome), total: "\u2014" },
-                        { label: "Avg LIB Gap", t1: formatUSD(activeResult.t1AvgLIBGap), legacy: "\u2014", t2: formatUSD(activeResult.t2AvgLIBGap), total: formatUSD(activeResult.totalAvgLIBGap) },
+                        { label: "Total Farmers", t1: formatNumber(activeResult.t1TotalFarmers), legacy: formatNumber(activeResult.legacyTotalFarmers), t2: formatNumber(activeResult.t2TotalFarmers), nonProg: formatNumber(activeResult.nonProgramTotalFarmers), shed: formatNumber(activeResult.supplyShEdTotalFarmers) },
+                        { label: "% Above LIB", t1: formatPercent(activeResult.t1PctAboveLIB), legacy: formatPercent(activeResult.legacyPctAboveLIB), t2: formatPercent(activeResult.t2PctAboveLIB), nonProg: formatPercent(activeResult.nonProgramPctAboveLIB), shed: formatPercent(activeResult.supplyShEdKPI) },
+                        { label: "# Above LIB", t1: formatNumber(activeResult.t1AboveLIB), legacy: formatNumber(activeResult.legacyAboveLIB), t2: formatNumber(activeResult.t2AboveLIB), nonProg: formatNumber(activeResult.nonProgramAboveLIB), shed: formatNumber(activeResult.supplyShEdAboveLIB) },
+                        { label: "Moved Above LIB", t1: `+${formatNumber(activeResult.t1MovedAboveLIB)}`, legacy: "\u2014", t2: `+${formatNumber(activeResult.t2MovedAboveLIB)}`, nonProg: "\u2014", shed: `+${formatNumber(activeResult.totalMovedAboveLIB)}` },
+                        { label: "Avg Income", t1: formatUSD(activeResult.t1AvgIncome), legacy: formatUSD(activeResult.legacyAvgIncome), t2: formatUSD(activeResult.t2AvgIncome), nonProg: formatUSD(activeResult.nonProgramAvgIncome), shed: formatUSD(activeResult.totalAvgIncome) },
+                        { label: "Median Income", t1: formatUSD(activeResult.t1MedianIncome), legacy: "\u2014", t2: formatUSD(activeResult.t2MedianIncome), nonProg: "\u2014", shed: "\u2014" },
+                        { label: "Avg LIB Gap", t1: formatUSD(activeResult.t1AvgLIBGap), legacy: "\u2014", t2: formatUSD(activeResult.t2AvgLIBGap), nonProg: "\u2014", shed: formatUSD(activeResult.totalAvgLIBGap) },
                       ].map((row, i) => (
                         <tr key={i} className="border-t border-[var(--card-border)]">
                           <td className="py-2 px-3 text-[var(--text-secondary)] font-medium">{row.label}</td>
                           <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono">{row.t1}</td>
                           {params.includeT1Legacy && <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono">{row.legacy}</td>}
                           <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono">{row.t2}</td>
-                          <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono font-bold">{row.total}</td>
+                          <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono">{row.nonProg}</td>
+                          <td className="py-2 px-3 text-right text-[var(--text-primary)] font-mono font-bold">{row.shed}</td>
                         </tr>
                       ))}
                       <tr className="border-t border-[var(--card-border)]" style={{ background: "var(--card-bg)" }}>
                         <td className="py-2 px-3 text-[var(--text-tertiary)] font-medium">LIB Benchmark</td>
-                        <td colSpan={params.includeT1Legacy ? 4 : 3} className="py-2 px-3 text-right text-[var(--text-primary)] font-mono font-bold">{formatUSD(activeResult.lib)}</td>
+                        <td colSpan={params.includeT1Legacy ? 6 : 5} className="py-2 px-3 text-right text-[var(--text-primary)] font-mono font-bold">{formatUSD(activeResult.lib)}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               ) : (
-                /* ── LIB Trajectory Chart ── */
+                /* ── LIB Trajectory Chart — with reported/projected distinction ── */
                 <>
                   <ResponsiveContainer width="100%" height={200}>
                     <LineChart data={trajectoryData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--card-border)" />
-                      <XAxis dataKey="year" tick={{ fill: "var(--text-tertiary)", fontSize: 10 }} />
+                      <XAxis
+                        dataKey="year"
+                        tick={(props: Record<string, unknown>) => {
+                          const { x, y, payload } = props as { x: number; y: number; payload: { value: string } };
+                          const yr = Number(payload.value);
+                          const isRep = params.reportedYears?.includes(yr);
+                          return (
+                            <text x={x as number} y={(y as number) + 12} textAnchor="middle" fontSize={10} fill={isRep ? "var(--text-primary)" : "var(--text-tertiary)"} fontWeight={isRep ? 700 : 400}>
+                              {payload.value}{isRep ? "" : "*"}
+                            </text>
+                          );
+                        }}
+                      />
                       <YAxis tick={{ fill: "var(--text-tertiary)", fontSize: 10 }} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                       <Tooltip content={<ChartTooltip />} />
                       <ReferenceLine x={chartRefYear.toString()} stroke="var(--color-accent)" strokeWidth={2} strokeDasharray="4 4" opacity={0.6} />
-                      <Line type="monotone" dataKey="T1 % Above LIB" stroke="#007BFF" strokeWidth={2} dot={{ r: 3, fill: "#007BFF" }} name="T1 % Above LIB" isAnimationActive={false} />
-                      <Line type="monotone" dataKey="T2 % Above LIB" stroke="#6F42C1" strokeWidth={2} dot={{ r: 3, fill: "#6F42C1" }} name="T2 % Above LIB" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="T1 % Above LIB" stroke="#007BFF" strokeWidth={1.5} dot={{ r: 2, fill: "#007BFF" }} name="T1 % Above LIB" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="T2 % Above LIB" stroke="#6F42C1" strokeWidth={1.5} dot={{ r: 2, fill: "#6F42C1" }} name="T2 % Above LIB" isAnimationActive={false} />
+                      <Line type="monotone" dataKey="Non-Program % Above LIB" stroke="#FFB703" strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2, fill: "#FFB703" }} name="Non-Program % Above LIB" isAnimationActive={false} />
                       <Line
                         type="monotone"
-                        dataKey="Total % Above LIB"
-                        stroke="#00A17D"
+                        dataKey="Supply Shed KPI"
+                        stroke="#2A1055"
                         strokeWidth={2.5}
-                        name="Total % Above LIB"
+                        name="Supply Shed KPI"
                         isAnimationActive={false}
                         dot={(props: Record<string, unknown>) => {
-                          const { cx, cy, payload, stroke } = props as { cx: number; cy: number; payload: { year: string }; stroke: string };
+                          const { cx, cy, payload, stroke } = props as { cx: number; cy: number; payload: { year: string; isReported?: boolean }; stroke: string };
                           const isTarget = payload?.year === chartRefYear.toString();
+                          const isRep = payload?.isReported;
                           return (
                             <g key={`dot-${payload?.year}`}>
                               {isTarget && (
-                                <circle cx={cx} cy={cy} r={8} fill="#00A17D" opacity={0.2}>
+                                <circle cx={cx} cy={cy} r={8} fill="#2A1055" opacity={0.2}>
                                   <animate attributeName="r" values="5;10;5" dur="2s" repeatCount="indefinite" />
                                   <animate attributeName="opacity" values="0.3;0.1;0.3" dur="2s" repeatCount="indefinite" />
                                 </circle>
                               )}
-                              <circle cx={cx} cy={cy} r={isTarget ? 5 : 3} fill={stroke || "#00A17D"} />
+                              {isRep ? (
+                                <circle cx={cx} cy={cy} r={isTarget ? 5 : 3} fill={stroke || "#2A1055"} />
+                              ) : (
+                                <circle cx={cx} cy={cy} r={isTarget ? 5 : 3} fill="var(--color-surface-1)" stroke={stroke || "#2A1055"} strokeWidth={2} />
+                              )}
                             </g>
                           );
                         }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
-                  <div className="flex items-center justify-center gap-4 mt-1">
-                    {[{ label: "T1", color: "#007BFF" }, { label: "T2", color: "#6F42C1" }, { label: "Total", color: "#00A17D" }].map((l) => (
+                  <div className="flex items-center justify-center gap-4 mt-1 flex-wrap">
+                    {[
+                      { label: "Supply Shed KPI", color: "#2A1055" },
+                      { label: "T1", color: "#007BFF" },
+                      { label: "T2", color: "#6F42C1" },
+                      { label: "Non-Program", color: "#FFB703", dashed: true },
+                    ].map((l) => (
                       <div key={l.label} className="flex items-center gap-1">
-                        <div className="w-2.5 h-0.5 rounded" style={{ background: l.color }} />
+                        <div className="w-2.5 h-0.5 rounded" style={{ background: l.color, ...(l.dashed ? { backgroundImage: "repeating-linear-gradient(90deg, transparent, transparent 2px, var(--color-surface-1) 2px, var(--color-surface-1) 4px)" } : {}) }} />
                         <span className="text-[9px] text-[var(--text-tertiary)]">{l.label}</span>
                       </div>
                     ))}
+                    <div className="flex items-center gap-1 ml-2">
+                      <div className="w-2 h-2 rounded-full bg-[#2A1055]" />
+                      <span className="text-[8px] text-[var(--text-tertiary)]">Reported</span>
+                      <div className="w-2 h-2 rounded-full border-2 border-[#2A1055]" style={{ background: "var(--color-surface-1)" }} />
+                      <span className="text-[8px] text-[var(--text-tertiary)]">Projected</span>
+                    </div>
                   </div>
                 </>
               )}
@@ -1145,10 +1429,25 @@ export default function LIBScenarioTool() {
                           lever={params.crops[crop]}
                           onChange={(field, value) => updateCropLever(crop, field, value)}
                           isRabi={RABI_CROPS.includes(crop)}
+                          leverMode={params.leverMode ?? "percentage"}
                         />
                       ))}
                     </div>
                   </div>
+
+                  {/* Tenure Ramp Button */}
+                  <button
+                    onClick={() => setShowTenureRamps(true)}
+                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-semibold transition-colors"
+                    style={{
+                      background: params.cropTenureRamps ? "rgba(0,161,125,0.1)" : "var(--card-bg)",
+                      border: `1px solid ${params.cropTenureRamps ? "rgba(0,161,125,0.3)" : "var(--card-border)"}`,
+                      color: params.cropTenureRamps ? "var(--color-accent)" : "var(--text-secondary)",
+                    }}
+                  >
+                    <TrendingUp size={10} />
+                    {params.cropTenureRamps ? "Custom T2 Ramps Active" : "Customize T2 Tenure Ramps"}
+                  </button>
 
                   {/* Other Income */}
                   <div>
@@ -1193,6 +1492,74 @@ export default function LIBScenarioTool() {
                     </div>
                   </div>
 
+                  {/* Supply Shed Settings */}
+                  <div>
+                    <h3 className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 flex items-center gap-1.5">
+                      <Globe size={10} />
+                      Supply Shed KPI
+                    </h3>
+                    <div className="space-y-3">
+                      {/* Supply shed population */}
+                      <div>
+                        <label className="text-[10px] text-[var(--text-secondary)] font-medium">Total Supply Shed Population</label>
+                        <input
+                          type="number"
+                          min={1000}
+                          step={1000}
+                          value={params.supplyShEdPopulation ?? DEFAULT_SUPPLY_SHED_POPULATION}
+                          onChange={(e) => setParams((p) => ({ ...p, supplyShEdPopulation: Math.max(1000, Number(e.target.value)) }))}
+                          className="w-full mt-1 px-2 py-1 rounded-lg text-[11px] font-mono text-[var(--text-primary)] outline-none"
+                          style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+                        />
+                        <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5">KPI denominator — total estimated farmers in supply shed</p>
+                      </div>
+                      {/* Extrapolation rate */}
+                      <div>
+                        <label className="text-[10px] text-[var(--text-secondary)] font-medium">Extrapolation Rate</label>
+                        <div className="flex gap-1 mt-1">
+                          {EXTRAPOLATION_RATES.map((rate) => (
+                            <button
+                              key={rate}
+                              onClick={() => setParams((p) => ({ ...p, extrapolationRate: rate }))}
+                              className="flex-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-colors"
+                              style={{
+                                background: params.extrapolationRate === rate ? "rgba(42,16,85,0.15)" : "var(--card-bg)",
+                                border: `1px solid ${params.extrapolationRate === rate ? "#2A1055" : "var(--card-border)"}`,
+                                color: params.extrapolationRate === rate ? "#2A1055" : "var(--text-tertiary)",
+                              }}
+                            >
+                              {(rate * 100).toFixed(0)}%
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5">How much of the supply shed the data credibly represents</p>
+                      </div>
+                      {/* Lever mode toggle */}
+                      <div>
+                        <label className="text-[10px] text-[var(--text-secondary)] font-medium">Lever Input Mode</label>
+                        <div className="flex gap-1 mt-1">
+                          {([["percentage", "%"] , ["fixed", "₹"]] as const).map(([mode, label]) => (
+                            <button
+                              key={mode}
+                              onClick={() => setParams((p) => ({ ...p, leverMode: mode as LeverMode }))}
+                              className="flex-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-colors"
+                              style={{
+                                background: params.leverMode === mode ? "rgba(0,161,125,0.15)" : "var(--card-bg)",
+                                border: `1px solid ${params.leverMode === mode ? "var(--color-accent)" : "var(--card-border)"}`,
+                                color: params.leverMode === mode ? "var(--color-accent)" : "var(--text-tertiary)",
+                              }}
+                            >
+                              {label} {mode === "percentage" ? "Change" : "Value"}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5">
+                          {params.leverMode === "percentage" ? "Enter changes as % from baseline" : "Enter target values (e.g., INR 1,200/kg)"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Cohorts & Coverage */}
                   <div>
                     <h3 className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-2 flex items-center gap-1.5">
@@ -1210,7 +1577,7 @@ export default function LIBScenarioTool() {
                         />
                         <div>
                           <span className="text-[11px] font-medium text-[var(--text-primary)]">Include T1 Legacy</span>
-                          <p className="text-[9px] text-[var(--text-tertiary)]">8,000 offboarded farmers (inflation-only growth)</p>
+                          <p className="text-[9px] text-[var(--text-tertiary)]">Offboarded farmers (inflation-only growth, part of supply shed)</p>
                         </div>
                       </label>
 
@@ -1276,6 +1643,48 @@ export default function LIBScenarioTool() {
                           </div>
                         )}
                       </div>
+
+                      {/* T1 Offboarding Schedule */}
+                      {params.includeT1Legacy && (
+                        <div>
+                          <div className="mb-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-semibold text-[var(--text-primary)]">T1 Offboarding / Year</span>
+                              <span className="text-[10px] font-mono text-[var(--text-secondary)]">
+                                {formatNumber(Object.values(params.t1Offboarding ?? {}).reduce((a, b) => a + b, 0))} total
+                              </span>
+                            </div>
+                            <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5">
+                              How many T1 farmers move to Legacy status each year (gradual offboarding)
+                            </p>
+                          </div>
+                          <div
+                            className="grid gap-2"
+                            style={{
+                              gridTemplateColumns: `repeat(${Math.min(modelYears.length - 1, 3)}, minmax(0, 1fr))`,
+                            }}
+                          >
+                            {modelYears.filter((y) => y > BASELINE_YEAR).map((year) => (
+                              <div key={year} className="space-y-0.5">
+                                <label className="text-[9px] text-[var(--text-tertiary)] font-mono">{year}</label>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={PROGRAM_T1_FARMERS}
+                                  step={100}
+                                  value={params.t1Offboarding?.[year] ?? 0}
+                                  onChange={(e) => setParams((p) => ({
+                                    ...p,
+                                    t1Offboarding: { ...(p.t1Offboarding ?? {}), [year]: Math.max(0, Number(e.target.value)) },
+                                  }))}
+                                  className="w-full px-2 py-1 rounded-lg text-[11px] font-mono text-[var(--text-primary)] outline-none"
+                                  style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1286,6 +1695,20 @@ export default function LIBScenarioTool() {
         </div>
       </div>
       )}
+
+      {/* ── Tenure Ramp Modal ── */}
+      <AnimatePresence>
+        {showTenureRamps && (
+          <TenureRampModal
+            cropTenureRamps={params.cropTenureRamps}
+            onSave={(ramps) => {
+              setParams((p) => ({ ...p, cropTenureRamps: ramps || undefined }));
+              setShowTenureRamps(false);
+            }}
+            onClose={() => setShowTenureRamps(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ── Methodology Modal ── */}
       <AnimatePresence>
@@ -1328,10 +1751,11 @@ export default function LIBScenarioTool() {
               {/* Body */}
               <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
                 <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                  This tool projects household income across the <strong className="text-[var(--text-primary)]">entire Shubh Samriddhi program</strong> — 8,500 T1 Core farmers,
-                  8,000 Legacy farmers (optional, inflation-only), and up to 10,000 T2 farmers — using the T1 and T2 baseline survey distributions as the foundation.
-                  Crop-level levers (yield, price, cost, acreage) are applied to T1 Core and T2 farmers. Legacy farmers retain baseline income
-                  inflating year-over-year. T2 farmers realize improvements gradually via a tenure curve.
+                  This tool calculates the <strong className="text-[var(--text-primary)]">Mint Segment Living Income KPI</strong> across the full supply shed —
+                  8,500 T1 Core farmers, 8,000+ Legacy/offboarded farmers, up to 10,000 T2 farmers, and the non-program supply shed population
+                  (modeled from control group data). The KPI = % of total supply shed at or above the inflation-adjusted LIB.
+                  Reported years show actual calculated KPIs; projected years run scenarios forward from the most recent reported year.
+                  LIB inflation uses component-based indices (CPI 60%, fertilizer 25%, energy 15%).
                 </p>
 
                 {/* Table */}
