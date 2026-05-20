@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type {
   AnnualLock,
   BenchmarkAnchor,
@@ -76,6 +77,31 @@ export function deleteLock(year: number): void {
   if (typeof window === "undefined") return;
   const locks = readLocks().filter((l) => l.lockedYear !== year);
   window.localStorage.setItem(LOCKS_KEY, JSON.stringify(locks));
+}
+
+export function useLatestLockedAnchor(): { year: number; lib: number } | undefined {
+  const [state, setState] = useState<{ year: number; lib: number } | undefined>();
+
+  useEffect(() => {
+    const refresh = () => {
+      const latest = readLatestLock();
+      if (latest) setState({ year: latest.lockedYear, lib: latest.computedLibUsd });
+      else setState(undefined);
+    };
+    refresh();
+    const onFocus = () => refresh();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === LOCKS_KEY) refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  return state;
 }
 
 export function downloadJson(data: unknown, filename: string): void {

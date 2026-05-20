@@ -6,6 +6,7 @@ import {
 } from "../src/lib/utils/libAnnualLock";
 import anchorsFile from "../src/data/lib-program/benchmark-anchors.json";
 import type { BenchmarkAnchorsFile } from "../src/lib/data/lib-program-types";
+import { getLIBForYear, LIB_2024, BASELINE_YEAR } from "../src/lib/utils/libScenarioEngine";
 
 const EPSILON = 0.01;
 
@@ -76,6 +77,43 @@ if (!lock.lockedAt) {
   process.exitCode = 1;
 } else {
   console.log(`PASS  lock.lockedAt = ${lock.lockedAt}`);
+}
+
+console.log("\n=== Engine override: getLIBForYear honors locked anchor ===");
+
+// No lock: falls back to original LIB_2024
+const libNoLock2024 = getLIBForYear(2024);
+assertClose(libNoLock2024, LIB_2024, "no-lock LIB(2024) returns LIB_2024 constant");
+
+// With lock at 2025 = $5,439.39: engine should return exactly that for year=2025
+const lockedAnchor = { year: 2025, lib: 5439.388795 };
+const libWithLock2025 = getLIBForYear(2025, undefined, lockedAnchor);
+assertClose(libWithLock2025, 5439.388795, "with-lock LIB(2025) = locked value exactly");
+
+// Year before lock: deflates from the locked value
+const libWithLock2024 = getLIBForYear(2024, undefined, lockedAnchor);
+// Should be lock / (1 + default blended inflation)
+console.log(`        info: with-lock LIB(2024) deflated = $${libWithLock2024.toFixed(2)} (was $${LIB_2024} without lock)`);
+if (libWithLock2024 <= LIB_2024) {
+  console.error("FAIL  with-lock LIB(2024) should be > old LIB_2024 since locked 2025 is higher");
+  process.exitCode = 1;
+} else {
+  console.log("PASS  with-lock LIB(2024) > LIB_2024 (locked anchor pulled 2024 up)");
+}
+
+// Year after lock: inflates from the locked value
+const libWithLock2026 = getLIBForYear(2026, undefined, lockedAnchor);
+if (libWithLock2026 <= 5439.388795) {
+  console.error("FAIL  with-lock LIB(2026) should be > locked LIB(2025)");
+  process.exitCode = 1;
+} else {
+  console.log(`PASS  with-lock LIB(2026) = $${libWithLock2026.toFixed(2)} (inflated forward from lock)`);
+}
+
+// Sanity: BASELINE_YEAR constant unchanged
+if (BASELINE_YEAR !== 2024) {
+  console.error("FAIL  BASELINE_YEAR drifted");
+  process.exitCode = 1;
 }
 
 console.log();

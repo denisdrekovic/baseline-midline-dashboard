@@ -61,6 +61,7 @@ import {
   parseScenarioFile,
   LIB_METHODOLOGY,
 } from "@/lib/utils/libScenarioEngine";
+import { useLatestLockedAnchor } from "@/lib/utils/libProgramStorage";
 import { useAnimatedData } from "@/hooks/useAnimatedData";
 import AnimatedNumber from "@/components/shared/AnimatedNumber";
 import ComparisonPanel from "@/components/analytics/ComparisonPanel";
@@ -785,8 +786,18 @@ export default function LIBScenarioTool() {
     [params.projectionYears]
   );
 
+  // Locked LIB anchor — when present, overrides LIB_2024/BASELINE_YEAR in the engine.
+  // Sourced from the latest Annual Lock at /lib-calculator/setup.
+  const lockedAnchor = useLatestLockedAnchor();
+
+  // Merge the locked anchor into params so it flows through to the engine.
+  const paramsWithLock = useMemo<LIBScenarioParams>(
+    () => ({ ...params, lockedAnchor }),
+    [params, lockedAnchor],
+  );
+
   // Run the scenario
-  const result = useMemo(() => runLIBScenario(data, params), [data, params]);
+  const result = useMemo(() => runLIBScenario(data, paramsWithLock), [data, paramsWithLock]);
 
   // Callbacks
   const updateCropLever = useCallback((crop: ModeledCrop, field: keyof CropLever, value: number) => {

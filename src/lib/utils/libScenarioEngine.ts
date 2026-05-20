@@ -25,8 +25,16 @@ import { mean, median } from "./statistics";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** Living Income Benchmark (household annual USD) - 2024 baseline */
+/** Living Income Benchmark (household annual USD) - 2024 baseline (fallback when no lock exists) */
 export const LIB_2024 = 4933.5;
+
+/** Locked LIB anchor: when present, LIB for any year is computed by inflating/deflating
+ *  from this year's locked value rather than from LIB_2024 / BASELINE_YEAR.
+ *  Sourced from the Annual Lock (see /lib-calculator/setup). */
+export interface LockedAnchor {
+  year: number;
+  lib: number;
+}
 
 /** Default LIB inflation component weights (sum to 1.0)
  *  CPI is primary driver; fertilizer and energy are agricultural input modifiers. */
@@ -224,6 +232,9 @@ export interface LIBScenarioParams {
   t1Offboarding: Record<number, number>;
   /** Reported KPI years — years where actual data exists (vs projected) */
   reportedYears?: number[];
+  /** Locked LIB anchor from the Annual Lock. When present, replaces LIB_2024/BASELINE_YEAR
+   *  as the inflation anchor — LIB for any year is computed by inflating from this point. */
+  lockedAnchor?: LockedAnchor;
 }
 
 export interface YearlyResult {
@@ -436,16 +447,33 @@ function extractBaseline(farmer: Farmer): FarmerBaseline | null {
  * Uses component-based inflation (CPI + fertilizer + energy) when per-year indices provided,
  * otherwise falls back to the compound default rates.
  */
-export function getLIBForYear(year: number, yearlyIndices?: YearlyIndexRates): number {
+export function getLIBForYear(
+  year: number,
+  yearlyIndices?: YearlyIndexRates,
+  lockedAnchor?: LockedAnchor,
+): number {
+  const anchorYear = lockedAnchor?.year ?? BASELINE_YEAR;
+  const anchorLib = lockedAnchor?.lib ?? LIB_2024;
+
+  if (year === anchorYear) return anchorLib;
+
   if (!yearlyIndices) {
-    // Fast path: compound using blended default rate
     const blended = getLIBInflationRate(BASELINE_YEAR, undefined);
-    return LIB_2024 * Math.pow(1 + blended, year - BASELINE_YEAR);
+    return anchorLib * Math.pow(1 + blended, year - anchorYear);
   }
-  // Year-by-year compounding with per-year rates
-  let lib = LIB_2024;
-  for (let y = BASELINE_YEAR + 1; y <= year; y++) {
-    lib *= 1 + getLIBInflationRate(y, yearlyIndices);
+
+  if (year > anchorYear) {
+    let lib = anchorLib;
+    for (let y = anchorYear + 1; y <= year; y++) {
+      lib *= 1 + getLIBInflationRate(y, yearlyIndices);
+    }
+    return lib;
+  }
+
+  // year < anchorYear — deflate
+  let lib = anchorLib;
+  for (let y = anchorYear; y > year; y--) {
+    lib /= 1 + getLIBInflationRate(y, yearlyIndices);
   }
   return lib;
 }
@@ -578,7 +606,7 @@ export function runLIBScenario(
   const reportedYears = new Set(params.reportedYears ?? [BASELINE_YEAR]);
 
   // Baseline stats (2024)
-  const baselineLIB = getLIBForYear(BASELINE_YEAR, params.yearlyIndices);
+  const baselineLIB = getLIBForYear(BASELINE_YEAR, params.yearlyIndices, params.lockedAnchor);
   const t1SampleAbove2024 = t1Active.filter((f) => f.totalNetIncome > baselineLIB).length;
   const baselineAbove = Math.round(t1SampleAbove2024 * t1ScaleFactor)
     + (params.includeT1Legacy ? Math.round(t1SampleAbove2024 * legacyScaleFactor) : 0);
@@ -603,7 +631,7 @@ export function runLIBScenario(
   const yearlyResults: YearlyResult[] = [];
 
   for (const year of modelYears) {
-    const lib = getLIBForYear(year, params.yearlyIndices);
+    const lib = getLIBForYear(year, params.yearlyIndices, params.lockedAnchor);
     const isReported = reportedYears.has(year);
     const baseInflation = getBaseInflation(year, params.yearlyIndices);
 
@@ -673,7 +701,7 @@ export function runLIBScenario(
     // and are now above. New entrants who were already above don't count.
     let t2Moved = 0;
     if (year > BASELINE_YEAR) {
-      const prevLib = getLIBForYear(year - 1, params.yearlyIndices);
+      const prevLib = getLIBForYear(year - 1, params.yearlyIndices, params.lockedAnchor);
       for (const [joinYear, cohortFarmers] of Object.entries(t2CohortSchedule)) {
         const jy = Number(joinYear);
         if (jy > year) continue;
