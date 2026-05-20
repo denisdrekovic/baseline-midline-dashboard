@@ -6,6 +6,7 @@ import {
   buildAnnualLock,
   computeAnnualLock,
 } from "@/lib/utils/libAnnualLock";
+import { BASELINE_YEAR } from "@/lib/utils/libScenarioEngine";
 import {
   downloadJson,
   readCurrentAnchor,
@@ -21,16 +22,19 @@ import type {
 } from "@/lib/data/lib-program-types";
 
 const COHORT_LABELS: Record<CohortKey, string> = {
-  control: "Control (Pathway 3 proxy)",
+  control: "Non-Program (supply shed)",
   t1Survey: "T1 Program Survey",
   t2Survey: "T2 Program Survey",
 };
 
-const FALLBACK_DEFAULTS: AnnualLockInputs = {
-  lockedYear: new Date().getFullYear(),
-  referenceCpi: 197,
-  cohortPercentsAboveLib: { control: 0.0395, t1Survey: 0.1357, t2Survey: 0.65 },
-  programPopulations: { t1Full: 23875, t2Full: 3040 },
+// First-time defaults — used only when no prior lock exists. Anchored at BASELINE_YEAR
+// so Bilal backfills the foundation lock first; CPI and populations stay 0 so the user
+// must enter real values rather than accepting stale numbers.
+const FIRST_RUN_DEFAULTS: AnnualLockInputs = {
+  lockedYear: BASELINE_YEAR,
+  referenceCpi: 0,
+  cohortPercentsAboveLib: { control: 0, t1Survey: 0, t2Survey: 0 },
+  programPopulations: { t1Full: 0, t2Full: 0 },
 };
 
 function pctToDisplay(v: number) {
@@ -67,7 +71,7 @@ export default function AnnualLockForm({
   const startingInputs = useMemo<AnnualLockInputs>(() => {
     const targetYear = initialYear ?? (() => {
       const latest = readLatestLock();
-      return latest ? latest.lockedYear + 1 : new Date().getFullYear();
+      return latest ? latest.lockedYear + 1 : BASELINE_YEAR;
     })();
     const existing = readLockForYear(targetYear);
     if (existing) {
@@ -87,7 +91,7 @@ export default function AnnualLockForm({
         programPopulations: prior.programPopulations,
       };
     }
-    return { ...FALLBACK_DEFAULTS, lockedYear: targetYear };
+    return { ...FIRST_RUN_DEFAULTS, lockedYear: targetYear };
   }, [initialYear, refreshKey]);
 
   const [inputs, setInputs] = useState<AnnualLockInputs>(startingInputs);
@@ -101,7 +105,25 @@ export default function AnnualLockForm({
 
   const computed = useMemo(() => computeAnnualLock(anchor, inputs), [anchor, inputs]);
 
+  const validationErrors = useMemo(() => {
+    const errs: string[] = [];
+    if (!Number.isFinite(inputs.referenceCpi) || inputs.referenceCpi <= 0) {
+      errs.push("Reference CPI must be greater than 0.");
+    }
+    const { t1Full, t2Full } = inputs.programPopulations;
+    if (t1Full + t2Full <= 0) {
+      errs.push("At least one of T1 or T2 full population must be greater than 0.");
+    }
+    if (inputs.lockedYear < 2000 || inputs.lockedYear > 2100) {
+      errs.push("Refresh Year is out of range.");
+    }
+    return errs;
+  }, [inputs]);
+
+  const canPreview = validationErrors.length === 0;
+
   function handleCalculate() {
+    if (!canPreview) return;
     setPreviewVisible(true);
   }
 
@@ -238,20 +260,32 @@ export default function AnnualLockForm({
       </Section>
 
       {!isLocked && (
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            onClick={handleCalculate}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-brand-plum)] text-white text-sm font-semibold hover:opacity-90 transition"
-          >
-            <Calculator size={14} /> Calculate
-          </button>
-          {previewVisible && (
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center gap-3">
             <button
-              onClick={handleSubmitLock}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-brand-green)] text-white text-sm font-semibold hover:opacity-90 transition"
+              onClick={handleCalculate}
+              disabled={!canPreview}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-brand-plum)] text-white text-sm font-semibold hover:opacity-90 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title={canPreview ? "Preview the calculated LIB and % at/above" : "Fill in the inputs above first"}
             >
-              <Lock size={14} /> Submit &amp; Lock {inputs.lockedYear}
+              <Calculator size={14} /> Preview Calculation
             </button>
+            {previewVisible && (
+              <button
+                onClick={handleSubmitLock}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-brand-green)] text-white text-sm font-semibold hover:opacity-90 transition"
+              >
+                <Lock size={14} /> Submit &amp; Lock {inputs.lockedYear}
+              </button>
+            )}
+            <span className="text-[11px] text-[var(--text-tertiary)]">
+              Preview doesn&apos;t save. Submit &amp; Lock commits the year.
+            </span>
+          </div>
+          {validationErrors.length > 0 && (
+            <ul className="text-[11px] text-[var(--color-brand-gold)] space-y-0.5 pl-4 list-disc">
+              {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
+            </ul>
           )}
         </div>
       )}
