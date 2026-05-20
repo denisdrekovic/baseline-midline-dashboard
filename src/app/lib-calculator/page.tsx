@@ -2,6 +2,7 @@
 
 import GeoBreadcrumb from "@/components/layout/GeoBreadcrumb";
 import LIBScenarioTool from "@/components/analytics/LIBScenarioTool";
+import LockedBaselineBanner from "@/components/analytics/LockedBaselineBanner";
 import { useData } from "@/providers/DataProvider";
 
 export default function LIBCalculatorPage() {
@@ -22,8 +23,9 @@ export default function LIBCalculatorPage() {
       style={{ height: "calc(100vh - 80px)" }}
     >
       {/* Header strip — no filter bar, tool operates at supply shed level */}
-      <div className="shrink-0 pb-2">
+      <div className="shrink-0 pb-2 flex items-center gap-3">
         <GeoBreadcrumb />
+        <div className="ml-auto"><LockedBaselineBanner /></div>
       </div>
 
       {/* LIB Scenario Tool — fills remaining space */}
