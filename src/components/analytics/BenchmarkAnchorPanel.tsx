@@ -168,7 +168,7 @@ function EditField({ label, value, onChange }: { label: string; value: string; o
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+        className="w-full px-3 py-2 rounded-lg text-sm outline-none transition focus:ring-2 focus:ring-[var(--color-brand-plum)]/30 focus:border-[var(--color-brand-plum)]"
         style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", color: "var(--text-primary)" }}
       />
     </label>
@@ -184,7 +184,7 @@ function EditNum({ label, value, step = 1, onChange }: { label: string; value: n
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full px-3 py-2 rounded-lg text-sm font-mono outline-none"
+        className="no-spin w-full px-3 py-2 rounded-lg text-sm font-mono outline-none transition focus:ring-2 focus:ring-[var(--color-brand-plum)]/30 focus:border-[var(--color-brand-plum)]"
         style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)", color: "var(--text-primary)" }}
       />
     </label>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Lock, Settings2, AlertCircle } from "lucide-react";
+import { Lock, SlidersHorizontal } from "lucide-react";
 import { readCurrentAnchor, readLatestLock } from "@/lib/utils/libProgramStorage";
 import type { AnnualLock, BenchmarkAnchor } from "@/lib/data/lib-program-types";
 
@@ -13,47 +13,55 @@ export default function LockedBaselineBanner() {
   useEffect(() => {
     setLock(readLatestLock());
     setAnchor(readCurrentAnchor());
+    const refresh = () => {
+      setLock(readLatestLock());
+      setAnchor(readCurrentAnchor());
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("storage", refresh);
+    };
   }, []);
 
   if (!anchor) return null;
 
-  return (
-    <div className="flex items-center gap-3 px-4 py-2 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] text-xs">
-      {lock ? (
-        <>
-          <Lock size={14} className="text-[var(--color-brand-green)] shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-[var(--text-primary)]">
-              Locked baseline · {lock.lockedYear}
-            </div>
-            <div className="text-[var(--text-tertiary)] truncate">
-              LIB ${lock.computedLibUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })} /
-              ₹{lock.computedLibInr.toLocaleString(undefined, { maximumFractionDigits: 0 })} ·
-              Program {(lock.programWeightedPercentAboveLib * 100).toFixed(2)}% at/above ·
-              Control {(lock.cohortPercentsAboveLib.control * 100).toFixed(2)}%
-            </div>
-          </div>
-        </>
-      ) : (
-        <>
-          <AlertCircle size={14} className="text-[var(--color-brand-gold)] shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="font-semibold text-[var(--text-primary)]">
-              No annual lock set
-            </div>
-            <div className="text-[var(--text-tertiary)] truncate">
-              Anchor: {anchor.studyLabel} · ${anchor.anchorLibUsd.toLocaleString()} / ₹{anchor.anchorLibInr.toLocaleString()}
-            </div>
-          </div>
-        </>
-      )}
+  if (!lock) {
+    return (
       <Link
         href="/lib-calculator/setup"
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--card-border)] shrink-0"
-        title="Open the annual lock setup"
+        className="group inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--card-bg)] transition"
+        title="Set the year's annual LIB lock"
       >
-        <Settings2 size={11} /> Setup
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--text-tertiary)] group-hover:bg-[var(--color-brand-gold)] transition" />
+        <span>No annual lock</span>
+        <span className="text-[var(--text-tertiary)]/60">·</span>
+        <span className="inline-flex items-center gap-1 text-[var(--color-brand-plum)] font-semibold">
+          <SlidersHorizontal size={11} /> Set lock
+        </span>
       </Link>
-    </div>
+    );
+  }
+
+  return (
+    <Link
+      href="/lib-calculator/setup"
+      className="group inline-flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-[var(--color-brand-light-green)]/60 hover:bg-[var(--color-brand-light-green)] border border-[var(--color-brand-green)]/20 transition"
+      title="View or update the annual lock"
+    >
+      <Lock size={12} className="text-[var(--color-brand-green)]" />
+      <span className="text-[11px] font-semibold text-[var(--color-brand-green)] tabular-nums">
+        {lock.lockedYear}
+      </span>
+      <span className="text-[var(--color-brand-green)]/40">·</span>
+      <span className="text-[11px] text-[var(--color-brand-green)] tabular-nums">
+        LIB ${Math.round(lock.computedLibUsd).toLocaleString()}
+      </span>
+      <span className="text-[var(--color-brand-green)]/40">·</span>
+      <span className="text-[11px] text-[var(--color-brand-green)] tabular-nums">
+        {(lock.programWeightedPercentAboveLib * 100).toFixed(1)}% at/above
+      </span>
+    </Link>
   );
 }

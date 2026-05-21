@@ -167,17 +167,12 @@ export default function AnnualLockForm({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">
-            Annual LIB Lock
-          </h2>
-          <p className="text-xs text-[var(--text-tertiary)] mt-0.5">
-            Anchored to {anchor.studyLabel} · LIB(anchor) = {fmtUsd(anchor.anchorLibUsd)} / {fmtInr(anchor.anchorLibInr)} · CPI(anchor) = {anchor.anchorCpi}
-          </p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
+          Anchored to {anchor.studyLabel}. LIB(anchor) {fmtUsd(anchor.anchorLibUsd)} / {fmtInr(anchor.anchorLibInr)} · CPI(anchor) {anchor.anchorCpi}.
+        </p>
         {isLocked && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-brand-light-green)] text-[var(--color-brand-green)] text-xs font-semibold">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-brand-light-green)] text-[var(--color-brand-green)] text-xs font-semibold shrink-0">
             <Lock size={12} /> Locked {new Date(existingLock!.lockedAt).toLocaleDateString()}
           </div>
         )}
@@ -400,25 +395,26 @@ function Field({
   locked: boolean;
   onChange: (v: number) => void;
 }) {
+  const isPlaceholder = value === 0;
   return (
     <label className="block">
-      <span className="block text-[11px] text-[var(--text-tertiary)] mb-1">{label}</span>
-      <div className="flex items-center gap-2">
+      <span className="block text-[11px] text-[var(--text-tertiary)] mb-1.5">{label}</span>
+      <div className="relative flex items-center">
         <input
           type="number"
           step={step}
           value={value}
           disabled={locked}
+          onFocus={(e) => { if (e.target.value === "0") e.target.select(); }}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="flex-1 px-3 py-2 rounded-lg text-sm font-mono outline-none disabled:opacity-60"
+          className={`no-spin w-full px-3 py-2.5 rounded-lg text-sm font-mono outline-none disabled:opacity-60 transition focus:ring-2 focus:ring-[var(--color-brand-plum)]/30 focus:border-[var(--color-brand-plum)] ${isPlaceholder ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"} ${unit ? "pr-12" : ""}`}
           style={{
             background: "var(--card-bg)",
             border: "1px solid var(--card-border)",
-            color: "var(--text-primary)",
           }}
         />
         {unit && (
-          <span className="text-[11px] text-[var(--text-tertiary)] w-14 shrink-0">{unit}</span>
+          <span className="absolute right-3 text-[11px] text-[var(--text-tertiary)] pointer-events-none">{unit}</span>
         )}
       </div>
     </label>
