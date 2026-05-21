@@ -1,8 +1,8 @@
 "use client";
 
 import GeoBreadcrumb from "@/components/layout/GeoBreadcrumb";
-import CollapsibleFilterBar from "@/components/dashboard/CollapsibleFilterBar";
 import LIBScenarioTool from "@/components/analytics/LIBScenarioTool";
+import LockedBaselineBanner from "@/components/analytics/LockedBaselineBanner";
 import { useData } from "@/providers/DataProvider";
 
 export default function LIBCalculatorPage() {
@@ -12,7 +12,6 @@ export default function LIBCalculatorPage() {
     return (
       <div className="space-y-4 py-4">
         <div className="skeleton h-12 w-64" />
-        <div className="skeleton h-10 w-full" />
         <div className="skeleton h-[60vh]" />
       </div>
     );
@@ -23,10 +22,10 @@ export default function LIBCalculatorPage() {
       className="flex flex-col"
       style={{ height: "calc(100vh - 80px)" }}
     >
-      {/* Header strip */}
-      <div className="shrink-0 space-y-2 pb-2">
+      {/* Header strip — no filter bar, tool operates at supply shed level */}
+      <div className="shrink-0 pb-2 flex items-center gap-3">
         <GeoBreadcrumb />
-        <CollapsibleFilterBar />
+        <div className="ml-auto"><LockedBaselineBanner /></div>
       </div>
 
       {/* LIB Scenario Tool — fills remaining space */}

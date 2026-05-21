@@ -1,0 +1,18 @@
+{
+  "currentAnchorId": "oct-2022-study",
+  "anchors": [
+    {
+      "id": "oct-2022-study",
+      "studyDate": "2022-10",
+      "studyLabel": "October 2022 Living Income Study",
+      "anchorCpi": 176.7,
+      "anchorLibUsd": 4980,
+      "anchorLibInr": 415000,
+      "referenceMonth": 8,
+      "country": "India",
+      "currency": "INR",
+      "supersededByAnchorId": null,
+      "notes": "Mars-anchored LIB study (Oct 2022). Reference month is August, set by the Aug 2024 calibration survey timing — all annual CPI lookups use the August value for their year."
+    }
+  ]
+}

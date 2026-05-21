@@ -4,13 +4,13 @@ import type { ProjectGroup } from "./types";
 export const PROJECT_LABELS: Record<ProjectGroup, string> = {
   "T-1": "Treatment 1 (Legacy Farmers)",
   "T-2": "Treatment 2 (New Intake)",
-  "Control": "Control Group",
+  "Control": "Non-Program (Supply Shed)",
 };
 
 export const PROJECT_SHORT: Record<ProjectGroup, string> = {
   "T-1": "T-1",
   "T-2": "T-2",
-  "Control": "Ctrl",
+  "Control": "Non-Prog",
 };
 
 export const CROP_COLORS: Record<string, string> = {

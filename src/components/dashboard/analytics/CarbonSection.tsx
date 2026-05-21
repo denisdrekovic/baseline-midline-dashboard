@@ -139,9 +139,9 @@ export default function CarbonSection({ data }: Props) {
             <div className="font-semibold text-[var(--text-secondary)] mb-1" style={{ fontSize: 9 }}>
               Methodology Note
             </div>
-            Emissions estimated using activity-based emission factors scaled to farm size (acres) and household size, aligned with{" "}
+            Component-based model using crop-specific emission factors for the Indo-Gangetic Plains, aligned with{" "}
             <span className="font-medium text-[var(--text-secondary)]">IPCC 2006 Tier 1</span>{" "}
-            guidelines for agricultural GHG inventories. Soil carbon accounts for tillage and fertilizer application; transport, electricity, and pesticide factors follow regional averages for smallholder agriculture in South Asia. Tree offset uses agroforestry sequestration rates from published literature. All values in tCO{"\u2082"}e per year.
+            guidelines. Soil/crop emissions use per-hectare factors weighted by actual crop mix: Rice 6.09 (incl. CH{"\u2084"}), Potato 7.18, Mustard 1.50, Mint 1.20, Wheat 1.17 tCO{"\u2082"}e/ha (Cool Farm Tool; Indian AFOLU review). Irrigation: 0.48 tCO{"\u2082"}e/ha (groundwater pumping at 12m avg depth). Transport 0.15, Pesticide 0.08, Farm ops 0.40 tCO{"\u2082"}e/ha. Tree offset: 1.50 tCO{"\u2082"}e/ha/yr (scattered farm trees). Household: 1.50 tCO{"\u2082"}e/person/yr. All values in tCO{"\u2082"}e/yr with {"\u00B1"}15% farm-level variability.
           </div>
 
           <SectionActionLink href="/analytics" label="View AI Sustainability Insights" />
