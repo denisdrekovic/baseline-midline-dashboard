@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, History, Lock, FileText, ListChecks } from "lucide-react";
+import { ArrowLeft, History, Lock, FileText } from "lucide-react";
 import AnnualLockForm from "@/components/analytics/AnnualLockForm";
 import BenchmarkAnchorPanel from "@/components/analytics/BenchmarkAnchorPanel";
 import { readLocks } from "@/lib/utils/libProgramStorage";
@@ -12,23 +12,26 @@ export default function LIBSetupPage() {
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
-    <div className="max-w-5xl mx-auto py-6 pb-24 space-y-6">
+    <div className="max-w-5xl mx-auto py-6 pb-24 space-y-5">
       <header className="space-y-3">
         <Link
           href="/lib-calculator"
-          className="inline-flex items-center gap-1.5 text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition"
+          className="inline-flex items-center gap-1.5 text-[11px] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition"
         >
-          <ArrowLeft size={12} /> Back to Calculator
+          <ArrowLeft size={11} /> Back to Calculator
         </Link>
-        <div className="flex items-start gap-4">
-          <div className="shrink-0 w-12 h-12 rounded-2xl bg-[var(--color-brand-light-green)] flex items-center justify-center">
-            <Lock size={20} className="text-[var(--color-brand-green)]" />
+        <div className="flex items-start gap-3">
+          <div
+            className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
+            style={{ background: "rgba(0, 161, 125, 0.12)" }}
+          >
+            <Lock size={16} style={{ color: "var(--color-brand-green)" }} />
           </div>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-[var(--text-primary)]">
+          <div className="flex-1 min-w-0 pt-0.5">
+            <h1 className="text-xl font-bold text-[var(--text-primary)] leading-tight">
               LIB Calculator — Setup
             </h1>
-            <p className="text-sm text-[var(--text-tertiary)] mt-1 max-w-2xl leading-relaxed">
+            <p className="text-[12px] text-[var(--text-tertiary)] mt-1 max-w-2xl leading-relaxed">
               Once a year, after Tanager delivers the updated CPI and cohort survey numbers, lock the values here.
               The Calculator projects forward from the latest lock.
             </p>
@@ -38,17 +41,9 @@ export default function LIBSetupPage() {
 
       <BenchmarkAnchorPanel onAnchorChange={() => setRefreshKey((k) => k + 1)} />
 
-      <section className="rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] overflow-hidden">
-        <div className="px-6 pt-5 pb-2 border-b border-[var(--card-border)] flex items-center gap-2">
-          <ListChecks size={14} className="text-[var(--color-brand-plum)]" />
-          <span className="text-[11px] uppercase tracking-wider font-semibold text-[var(--color-brand-plum)]">
-            Annual Lock
-          </span>
-        </div>
-        <div className="p-6">
-          <AnnualLockForm refreshKey={refreshKey} onLocked={() => setRefreshKey((k) => k + 1)} />
-        </div>
-      </section>
+      <div className="brand-card rounded-2xl p-5">
+        <AnnualLockForm refreshKey={refreshKey} onLocked={() => setRefreshKey((k) => k + 1)} />
+      </div>
 
       <LockHistory refreshKey={refreshKey} />
     </div>
@@ -64,11 +59,14 @@ function LockHistory({ refreshKey }: { refreshKey: number }) {
 
   if (locks.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-[var(--card-border)] px-6 py-5 flex items-center gap-3">
-        <div className="shrink-0 w-9 h-9 rounded-xl bg-[var(--card-bg)] flex items-center justify-center">
+      <div className="brand-card rounded-2xl px-5 py-4 flex items-center gap-3">
+        <div
+          className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center"
+          style={{ background: "rgba(109, 106, 106, 0.1)" }}
+        >
           <FileText size={14} className="text-[var(--text-tertiary)]" />
         </div>
-        <div className="text-xs text-[var(--text-tertiary)]">
+        <div className="text-[12px] text-[var(--text-tertiary)] leading-relaxed">
           No years locked yet. Once you lock a year above, it&apos;ll appear here and the Calculator will rebase to it.
         </div>
       </div>
@@ -76,32 +74,42 @@ function LockHistory({ refreshKey }: { refreshKey: number }) {
   }
 
   return (
-    <section className="rounded-2xl border border-[var(--card-border)] overflow-hidden">
-      <div className="px-5 py-3 border-b border-[var(--card-border)] flex items-center gap-2 bg-[var(--card-bg)]/30">
-        <History size={12} className="text-[var(--text-tertiary)]" />
-        <span className="text-[11px] uppercase tracking-wider font-semibold text-[var(--text-secondary)]">
+    <div className="brand-card rounded-2xl p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <div
+          className="w-6 h-6 rounded-lg flex items-center justify-center"
+          style={{ background: "rgba(0, 161, 125, 0.12)" }}
+        >
+          <History size={12} style={{ color: "var(--color-brand-green)" }} />
+        </div>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
           Lock history · {locks.length} {locks.length === 1 ? "year" : "years"}
         </span>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 p-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {locks.slice().reverse().map((l) => (
-          <div key={l.lockedYear} className="p-4 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]">
-            <div className="flex items-baseline justify-between mb-2">
-              <span className="text-lg font-bold text-[var(--text-primary)] tabular-nums">{l.lockedYear}</span>
-              <span className="text-[10px] text-[var(--text-tertiary)]">
-                {new Date(l.lockedAt).toLocaleDateString()}
-              </span>
-            </div>
-            <div className="space-y-1 text-[11px]">
-              <Row label="LIB (USD)" value={`$${l.computedLibUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
-              <Row label="LIB (INR)" value={`₹${l.computedLibInr.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
-              <Row label="Program" value={`${(l.programWeightedPercentAboveLib * 100).toFixed(2)}% at/above`} />
-              <Row label="Control" value={`${(l.cohortPercentsAboveLib.control * 100).toFixed(2)}% at/above`} />
-            </div>
-          </div>
+          <LockHistoryCard key={l.lockedYear} lock={l} />
         ))}
       </div>
-    </section>
+    </div>
+  );
+}
+
+function LockHistoryCard({ lock }: { lock: AnnualLock }) {
+  return (
+    <div className="rounded-xl p-3.5" style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}>
+      <div className="flex items-baseline justify-between mb-2.5">
+        <span className="text-lg font-bold text-[var(--text-primary)] tabular-nums font-mono">{lock.lockedYear}</span>
+        <span className="text-[9px] uppercase tracking-wider text-[var(--text-tertiary)]">
+          {new Date(lock.lockedAt).toLocaleDateString()}
+        </span>
+      </div>
+      <div className="space-y-1.5 text-[11px]">
+        <Row label="LIB" value={`$${lock.computedLibUsd.toLocaleString(undefined, { maximumFractionDigits: 0 })} · ₹${lock.computedLibInr.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+        <Row label="Program" value={`${(lock.programWeightedPercentAboveLib * 100).toFixed(2)}% at/above`} />
+        <Row label="Non-Program" value={`${(lock.cohortPercentsAboveLib.control * 100).toFixed(2)}% at/above`} />
+      </div>
+    </div>
   );
 }
 

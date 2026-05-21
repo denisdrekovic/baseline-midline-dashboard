@@ -53,27 +53,41 @@ export default function BenchmarkAnchorPanel({
   }
 
   return (
-    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+    <div className="brand-card rounded-2xl overflow-hidden">
       <button
         onClick={() => setExpanded((e) => !e)}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-[var(--card-bg-hover)] transition"
+        className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-[var(--card-bg-hover)] transition"
       >
-        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <Lock size={14} className="text-[var(--text-tertiary)]" />
-        <div className="flex-1">
-          <div className="text-sm font-semibold text-[var(--text-primary)]">
-            Benchmark Anchor — {anchor.studyLabel}
+        <div
+          className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center"
+          style={{ background: "rgba(42, 16, 85, 0.08)" }}
+        >
+          <Lock size={13} style={{ color: "var(--color-brand-deep-purple)" }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+              Benchmark Anchor
+            </span>
+            {isOverridden && (
+              <span
+                className="text-[8px] uppercase tracking-wider font-semibold px-1.5 py-px rounded"
+                style={{ background: "var(--color-brand-light-gold)", color: "var(--color-brand-gold)" }}
+              >
+                Override
+              </span>
+            )}
           </div>
-          <div className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-            LIB = ${anchor.anchorLibUsd.toLocaleString()} / ₹{anchor.anchorLibInr.toLocaleString()} · CPI {anchor.anchorCpi} ·
-            Reference month: {anchor.referenceMonth === 8 ? "August" : `month ${anchor.referenceMonth}`}
+          <div className="text-[13px] font-semibold text-[var(--text-primary)] mt-0.5 truncate">
+            {anchor.studyLabel}
+          </div>
+          <div className="text-[11px] text-[var(--text-tertiary)] mt-0.5 font-mono tabular-nums">
+            ${anchor.anchorLibUsd.toLocaleString()} · ₹{anchor.anchorLibInr.toLocaleString()} · CPI {anchor.anchorCpi} · Aug
           </div>
         </div>
-        {isOverridden && (
-          <span className="text-[10px] uppercase tracking-wide font-semibold px-2 py-0.5 rounded bg-[var(--color-brand-light-gold)] text-[var(--color-brand-gold)]">
-            Override active
-          </span>
-        )}
+        <div className="shrink-0">
+          {expanded ? <ChevronDown size={14} className="text-[var(--text-tertiary)]" /> : <ChevronRight size={14} className="text-[var(--text-tertiary)]" />}
+        </div>
       </button>
 
       {expanded && (

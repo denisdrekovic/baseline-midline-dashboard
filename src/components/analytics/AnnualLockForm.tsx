@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Lock, Calculator, Download, AlertCircle, Check, RotateCcw } from "lucide-react";
+import { Lock, Calculator, Download, AlertCircle, Check, RotateCcw, Percent, Users, TrendingUp, Layers, Activity } from "lucide-react";
 import {
   buildAnnualLock,
   computeAnnualLock,
@@ -167,25 +167,40 @@ export default function AnnualLockForm({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] text-[var(--text-tertiary)] leading-relaxed">
-          Anchored to {anchor.studyLabel}. LIB(anchor) {fmtUsd(anchor.anchorLibUsd)} / {fmtInr(anchor.anchorLibInr)} · CPI(anchor) {anchor.anchorCpi}.
-        </p>
+      {/* Header: section title + anchor caption + lock badge */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: "rgba(145, 13, 99, 0.12)" }}
+          >
+            <Activity size={13} style={{ color: "var(--color-brand-plum)" }} />
+          </div>
+          <div>
+            <h2 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+              Annual Lock
+            </h2>
+            <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
+              Anchored to {anchor.studyLabel} · {fmtUsd(anchor.anchorLibUsd)} / {fmtInr(anchor.anchorLibInr)} · CPI {anchor.anchorCpi}
+            </p>
+          </div>
+        </div>
         {isLocked && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-brand-light-green)] text-[var(--color-brand-green)] text-xs font-semibold shrink-0">
-            <Lock size={12} /> Locked {new Date(existingLock!.lockedAt).toLocaleDateString()}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--color-brand-light-green)] text-[var(--color-brand-green)] text-[10px] font-semibold shrink-0">
+            <Lock size={10} /> Locked {new Date(existingLock!.lockedAt).toLocaleDateString()}
           </div>
         )}
         {justLocked && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-brand-light-green)] text-[var(--color-brand-green)] text-xs font-semibold">
-            <Check size={12} /> Just locked
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--color-brand-light-green)] text-[var(--color-brand-green)] text-[10px] font-semibold shrink-0">
+            <Check size={10} /> Just locked
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Year + CPI row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field
-          label={`Refresh Year`}
+          label="Refresh Year"
           unit=""
           value={inputs.lockedYear}
           step={1}
@@ -198,7 +213,7 @@ export default function AnnualLockForm({
           }}
         />
         <Field
-          label={`Reference CPI (August ${inputs.lockedYear}, India)`}
+          label={`Reference CPI · Aug ${inputs.lockedYear}, India`}
           unit="index"
           value={inputs.referenceCpi}
           step={0.1}
@@ -207,109 +222,109 @@ export default function AnnualLockForm({
         />
       </div>
 
-      <Section title="% at/above LIB — by cohort">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {(Object.keys(COHORT_LABELS) as CohortKey[]).map((k) => (
-            <Field
-              key={k}
-              label={COHORT_LABELS[k]}
-              unit="%"
-              value={Number(pctToDisplay(inputs.cohortPercentsAboveLib[k]))}
-              step={0.01}
-              locked={isLocked}
-              onChange={(v) => setCohort(k, displayToPct(String(v)))}
-            />
-          ))}
-        </div>
-      </Section>
+      <SectionHeader icon={Percent} title="% at/above LIB — by cohort" color="#007BFF" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 -mt-1">
+        {(Object.keys(COHORT_LABELS) as CohortKey[]).map((k) => (
+          <Field
+            key={k}
+            label={COHORT_LABELS[k]}
+            unit="%"
+            value={Number(pctToDisplay(inputs.cohortPercentsAboveLib[k]))}
+            step={0.01}
+            locked={isLocked}
+            onChange={(v) => setCohort(k, displayToPct(String(v)))}
+          />
+        ))}
+      </div>
 
-      <Section title="Full program population counts">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Field
-            label="T1 full program population"
-            unit="farmers"
-            value={inputs.programPopulations.t1Full}
-            step={1}
-            locked={isLocked}
-            onChange={(v) =>
-              setInputs((p) => ({
-                ...p,
-                programPopulations: { ...p.programPopulations, t1Full: Math.max(0, Math.round(v)) },
-              }))
-            }
-          />
-          <Field
-            label="T2 full program population"
-            unit="farmers"
-            value={inputs.programPopulations.t2Full}
-            step={1}
-            locked={isLocked}
-            onChange={(v) =>
-              setInputs((p) => ({
-                ...p,
-                programPopulations: { ...p.programPopulations, t2Full: Math.max(0, Math.round(v)) },
-              }))
-            }
-          />
-        </div>
-      </Section>
+      <SectionHeader icon={Users} title="Full program population counts" color="#FFB703" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 -mt-1">
+        <Field
+          label="T1 full program population"
+          unit="farmers"
+          value={inputs.programPopulations.t1Full}
+          step={1}
+          locked={isLocked}
+          onChange={(v) =>
+            setInputs((p) => ({
+              ...p,
+              programPopulations: { ...p.programPopulations, t1Full: Math.max(0, Math.round(v)) },
+            }))
+          }
+        />
+        <Field
+          label="T2 full program population"
+          unit="farmers"
+          value={inputs.programPopulations.t2Full}
+          step={1}
+          locked={isLocked}
+          onChange={(v) =>
+            setInputs((p) => ({
+              ...p,
+              programPopulations: { ...p.programPopulations, t2Full: Math.max(0, Math.round(v)) },
+            }))
+          }
+        />
+      </div>
 
       {!isLocked && (
-        <div className="space-y-2 pt-2">
-          <div className="flex items-center gap-3">
+        <div className="space-y-2 pt-1">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleCalculate}
               disabled={!canPreview}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-brand-plum)] text-white text-sm font-semibold hover:opacity-90 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-brand-plum)] text-white text-[12px] font-semibold transition hover:shadow-[0_6px_20px_rgba(145,13,99,0.25)] hover:-translate-y-px disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
               title={canPreview ? "Preview the calculated LIB and % at/above" : "Fill in the inputs above first"}
             >
-              <Calculator size={14} /> Preview Calculation
+              <Calculator size={13} /> Preview Calculation
             </button>
             {previewVisible && (
               <button
                 onClick={handleSubmitLock}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-brand-green)] text-white text-sm font-semibold hover:opacity-90 transition"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--color-brand-green)] text-white text-[12px] font-semibold transition hover:shadow-[0_6px_20px_rgba(0,161,125,0.25)] hover:-translate-y-px"
               >
-                <Lock size={14} /> Submit &amp; Lock {inputs.lockedYear}
+                <Lock size={13} /> Submit &amp; Lock {inputs.lockedYear}
               </button>
             )}
-            <span className="text-[11px] text-[var(--text-tertiary)]">
+            <span className="text-[10px] text-[var(--text-tertiary)] ml-1">
               Preview doesn&apos;t save. Submit &amp; Lock commits the year.
             </span>
           </div>
           {validationErrors.length > 0 && (
-            <ul className="text-[11px] text-[var(--color-brand-gold)] space-y-0.5 pl-4 list-disc">
-              {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
-            </ul>
+            <div
+              className="flex items-start gap-2 rounded-lg p-2.5 mt-1"
+              style={{ background: "rgba(255, 192, 0, 0.08)", border: "1px solid rgba(255, 192, 0, 0.25)" }}
+            >
+              <AlertCircle size={12} className="mt-0.5 shrink-0 text-[var(--color-brand-gold)]" />
+              <div className="text-[11px] text-[var(--text-secondary)] space-y-0.5">
+                {validationErrors.map((e, i) => <div key={i}>{e}</div>)}
+              </div>
+            </div>
           )}
         </div>
       )}
 
       {(previewVisible || isLocked) && (
-        <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-              {isLocked ? "Locked values" : "Preview"} — {inputs.lockedYear}
-            </h3>
+        <div className="brand-card rounded-xl p-4 space-y-3 mt-2">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-6 h-6 rounded-lg flex items-center justify-center"
+                style={{ background: "rgba(0, 161, 125, 0.12)" }}
+              >
+                <TrendingUp size={12} style={{ color: "var(--color-brand-green)" }} />
+              </div>
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                {isLocked ? "Locked values" : "Preview"} · {inputs.lockedYear}
+              </h3>
+            </div>
             {isLocked && (
-              <div className="flex gap-2">
-                <button
-                  onClick={handleExport}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--card-border)]"
-                  title="Download this lock as JSON to commit to the repo"
-                >
-                  <Download size={11} /> Export JSON
-                </button>
-                <button
-                  onClick={handleUnlock}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--card-border)]"
-                  title="Delete this year's lock to re-enter values"
-                >
-                  <RotateCcw size={11} /> Unlock
-                </button>
+              <div className="flex gap-1.5">
+                <IconButton onClick={handleExport} icon={Download} label="Export JSON" />
+                <IconButton onClick={handleUnlock} icon={RotateCcw} label="Unlock" />
                 <button
                   onClick={handleStartNextYear}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-[var(--color-brand-plum)] text-white"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-semibold bg-[var(--color-brand-plum)] text-white hover:shadow-md transition"
                 >
                   Start {inputs.lockedYear + 1} Lock
                 </button>
@@ -317,46 +332,73 @@ export default function AnnualLockForm({
             )}
           </div>
 
+          {/* Headline LIB stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Stat label={`LIB ${inputs.lockedYear} (USD)`} value={fmtUsd(computed.computedLibUsd)} highlight />
-            <Stat label={`LIB ${inputs.lockedYear} (INR)`} value={fmtInr(computed.computedLibInr)} highlight />
+            <StatCard
+              icon={Layers}
+              color="var(--color-brand-green)"
+              label={`LIB ${inputs.lockedYear} · USD`}
+              value={fmtUsd(computed.computedLibUsd)}
+            />
+            <StatCard
+              icon={Layers}
+              color="var(--color-brand-green)"
+              label={`LIB ${inputs.lockedYear} · INR`}
+              value={fmtInr(computed.computedLibInr)}
+            />
           </div>
 
+          {/* Per-cohort stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Stat
-              label="Control % at/above"
+            <StatCard
+              icon={Percent}
+              color="#FFB703"
+              label="Non-Program % at/above"
               value={fmtPct(inputs.cohortPercentsAboveLib.control)}
-              sub={`(survey-based, not population-scaled)`}
+              sub="survey-based, not scaled"
             />
-            <Stat
+            <StatCard
+              icon={Users}
+              color="#007BFF"
               label="T1 above (scaled)"
               value={fmtCount(computed.cohortHeadcountsAboveLib.t1Survey)}
               sub={`of ${fmtCount(inputs.programPopulations.t1Full)}`}
             />
-            <Stat
+            <StatCard
+              icon={Users}
+              color="#6F42C1"
               label="T2 above (scaled)"
               value={fmtCount(computed.cohortHeadcountsAboveLib.t2Survey)}
               sub={`of ${fmtCount(inputs.programPopulations.t2Full)}`}
             />
           </div>
 
-          <div className="rounded-lg bg-[var(--color-brand-light-purple)] p-3">
-            <div className="text-[11px] text-[var(--color-brand-deep-purple)] font-semibold uppercase tracking-wide mb-1">
-              Program-wide
-            </div>
-            <div className="flex items-baseline gap-3">
-              <span className="text-2xl font-bold text-[var(--color-brand-deep-purple)]">
-                {fmtPct(computed.programWeightedPercentAboveLib)}
-              </span>
-              <span className="text-xs text-[var(--color-brand-deep-purple)]/70">
-                ({fmtCount(computed.programTotalAboveLib)} / {fmtCount(computed.programTotalPopulation)} farmers at/above LIB)
-              </span>
+          {/* Program-wide hero */}
+          <div
+            className="rounded-xl p-4"
+            style={{
+              background: "linear-gradient(135deg, rgba(42, 16, 85, 0.92) 0%, rgba(145, 13, 99, 0.92) 100%)",
+            }}
+          >
+            <div className="flex items-baseline justify-between gap-3 flex-wrap">
+              <div>
+                <div className="text-[9px] font-semibold uppercase tracking-wider text-white/70 mb-1">
+                  Program-wide · at/above LIB
+                </div>
+                <div className="text-3xl font-bold text-white font-mono">
+                  {fmtPct(computed.programWeightedPercentAboveLib)}
+                </div>
+              </div>
+              <div className="text-[11px] text-white/80 text-right">
+                <div>{fmtCount(computed.programTotalAboveLib)} / {fmtCount(computed.programTotalPopulation)}</div>
+                <div className="text-white/55 text-[10px]">farmers at/above LIB</div>
+              </div>
             </div>
           </div>
 
           {!isLocked && (
-            <div className="flex items-start gap-2 text-[11px] text-[var(--text-tertiary)]">
-              <AlertCircle size={12} className="mt-0.5 shrink-0" />
+            <div className="flex items-start gap-2 text-[10px] text-[var(--text-tertiary)] leading-relaxed pt-1">
+              <AlertCircle size={11} className="mt-0.5 shrink-0" />
               <span>
                 Review the numbers. Submit &amp; Lock to commit them as {inputs.lockedYear}&apos;s baseline. The
                 projection model will start from these values going forward.
@@ -369,13 +411,63 @@ export default function AnnualLockForm({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function SectionHeader({ icon: Icon, title, color }: { icon: React.ElementType; title: string; color: string }) {
   return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+    <div className="flex items-center gap-2 pt-1">
+      <div
+        className="w-5 h-5 rounded-md flex items-center justify-center"
+        style={{ background: `${color}1f` }}
+      >
+        <Icon size={10} style={{ color }} />
+      </div>
+      <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
         {title}
       </h3>
-      {children}
+    </div>
+  );
+}
+
+function IconButton({ onClick, icon: Icon, label }: { onClick: () => void; icon: React.ElementType; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--card-bg-hover)] border border-[var(--card-border)] transition"
+    >
+      <Icon size={10} /> {label}
+    </button>
+  );
+}
+
+function StatCard({
+  icon: Icon,
+  color,
+  label,
+  value,
+  sub,
+}: {
+  icon: React.ElementType;
+  color: string;
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  return (
+    <div
+      className="rounded-xl p-3"
+      style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+    >
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <div className="w-5 h-5 rounded-md flex items-center justify-center" style={{ background: `${color}1f` }}>
+          <Icon size={10} style={{ color }} />
+        </div>
+        <span className="text-[9px] uppercase tracking-wider text-[var(--text-tertiary)] font-semibold">
+          {label}
+        </span>
+      </div>
+      <div className="text-[15px] font-bold font-mono text-[var(--text-primary)] tabular-nums">
+        {value}
+      </div>
+      {sub && <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -398,7 +490,7 @@ function Field({
   const isPlaceholder = value === 0;
   return (
     <label className="block">
-      <span className="block text-[11px] text-[var(--text-tertiary)] mb-1.5">{label}</span>
+      <span className="block text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">{label}</span>
       <div className="relative flex items-center">
         <input
           type="number"
@@ -407,42 +499,16 @@ function Field({
           disabled={locked}
           onFocus={(e) => { if (e.target.value === "0") e.target.select(); }}
           onChange={(e) => onChange(Number(e.target.value))}
-          className={`no-spin w-full px-3 py-2.5 rounded-lg text-sm font-mono outline-none disabled:opacity-60 transition focus:ring-2 focus:ring-[var(--color-brand-plum)]/30 focus:border-[var(--color-brand-plum)] ${isPlaceholder ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"} ${unit ? "pr-12" : ""}`}
+          className={`no-spin w-full px-3 py-2 rounded-lg text-[13px] font-mono outline-none disabled:opacity-60 transition focus:ring-2 focus:ring-[var(--color-brand-plum)]/25 focus:border-[var(--color-brand-plum)] ${isPlaceholder ? "text-[var(--text-tertiary)]" : "text-[var(--text-primary)]"} ${unit ? "pr-12" : ""}`}
           style={{
             background: "var(--card-bg)",
             border: "1px solid var(--card-border)",
           }}
         />
         {unit && (
-          <span className="absolute right-3 text-[11px] text-[var(--text-tertiary)] pointer-events-none">{unit}</span>
+          <span className="absolute right-3 text-[10px] text-[var(--text-tertiary)] pointer-events-none uppercase tracking-wider">{unit}</span>
         )}
       </div>
     </label>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-  highlight,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  highlight?: boolean;
-}) {
-  return (
-    <div className="rounded-lg p-3 bg-[var(--card-bg)] border border-[var(--card-border)]">
-      <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">
-        {label}
-      </div>
-      <div
-        className={`mt-0.5 font-bold ${highlight ? "text-[var(--color-brand-green)] text-xl" : "text-[var(--text-primary)] text-lg"}`}
-      >
-        {value}
-      </div>
-      {sub && <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">{sub}</div>}
-    </div>
   );
 }
