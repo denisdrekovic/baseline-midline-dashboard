@@ -6,7 +6,7 @@ import {
   buildAnnualLock,
   computeAnnualLock,
 } from "@/lib/utils/libAnnualLock";
-import { BASELINE_YEAR } from "@/lib/utils/libScenarioEngine";
+import { BASELINE_YEAR, TARGET_YEAR } from "@/lib/utils/libScenarioEngine";
 import {
   downloadJson,
   readCurrentAnchor,
@@ -203,7 +203,7 @@ export default function AnnualLockForm({
         <YearStepper
           value={inputs.lockedYear}
           minYear={BASELINE_YEAR}
-          maxYear={new Date().getFullYear() + 1}
+          maxYear={Math.max(TARGET_YEAR, new Date().getFullYear() + 1)}
           onChange={(year) => {
             setInputs((p) => ({ ...p, lockedYear: year }));
             setExistingLock(readLockForYear(year));
