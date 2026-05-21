@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Lock, Calculator, Download, AlertCircle, Check, RotateCcw, Percent, Users, TrendingUp, Layers, Activity } from "lucide-react";
+import { Lock, Calculator, Download, AlertCircle, Check, RotateCcw, Percent, Users, TrendingUp, Layers, Activity, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
 import {
   buildAnnualLock,
   computeAnnualLock,
@@ -12,6 +12,7 @@ import {
   readCurrentAnchor,
   readLatestLock,
   readLockForYear,
+  readLocks,
   writeLock,
   deleteLock,
 } from "@/lib/utils/libProgramStorage";
@@ -199,15 +200,13 @@ export default function AnnualLockForm({
 
       {/* Year + CPI row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <Field
-          label="Refresh Year"
-          unit=""
+        <YearStepper
           value={inputs.lockedYear}
-          step={1}
-          locked={isLocked}
-          onChange={(v) => {
-            setInputs((p) => ({ ...p, lockedYear: Math.round(v) }));
-            setExistingLock(readLockForYear(Math.round(v)));
+          minYear={BASELINE_YEAR}
+          maxYear={new Date().getFullYear() + 1}
+          onChange={(year) => {
+            setInputs((p) => ({ ...p, lockedYear: year }));
+            setExistingLock(readLockForYear(year));
             setJustLocked(false);
             setPreviewVisible(false);
           }}
@@ -408,6 +407,78 @@ export default function AnnualLockForm({
         </div>
       )}
     </div>
+  );
+}
+
+function YearStepper({
+  value,
+  minYear,
+  maxYear,
+  onChange,
+}: {
+  value: number;
+  minYear: number;
+  maxYear: number;
+  onChange: (year: number) => void;
+}) {
+  const lockedYears = useMemo(() => new Set(readLocks().map((l) => l.lockedYear)), []);
+  const years = useMemo(
+    () => Array.from({ length: maxYear - minYear + 1 }, (_, i) => minYear + i),
+    [minYear, maxYear],
+  );
+  const isLockedYear = lockedYears.has(value);
+  const canDecrement = value > minYear;
+  const canIncrement = value < maxYear;
+
+  return (
+    <label className="block">
+      <span className="block text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">
+        Refresh Year
+      </span>
+      <div
+        className="flex items-stretch rounded-lg overflow-hidden transition focus-within:ring-2 focus-within:ring-[var(--color-brand-plum)]/25"
+        style={{ border: "1px solid var(--card-border)", background: "var(--card-bg)" }}
+      >
+        <button
+          type="button"
+          onClick={() => canDecrement && onChange(value - 1)}
+          disabled={!canDecrement}
+          className="px-2.5 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--color-brand-plum)] hover:bg-[var(--card-bg-hover)] transition disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--text-tertiary)]"
+          aria-label="Previous year"
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <div className="flex-1 relative">
+          <select
+            value={value}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="w-full h-full px-2 pr-8 py-2 text-[13px] font-mono font-bold tabular-nums outline-none cursor-pointer appearance-none bg-transparent text-[var(--text-primary)]"
+            aria-label="Refresh year"
+          >
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}{lockedYears.has(y) ? " · locked" : ""}{y === BASELINE_YEAR ? " · baseline" : ""}
+              </option>
+            ))}
+          </select>
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none flex items-center gap-1">
+            {isLockedYear && (
+              <Lock size={10} className="text-[var(--color-brand-green)]" />
+            )}
+            <Calendar size={11} className="text-[var(--text-tertiary)]" />
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => canIncrement && onChange(value + 1)}
+          disabled={!canIncrement}
+          className="px-2.5 flex items-center justify-center text-[var(--text-tertiary)] hover:text-[var(--color-brand-plum)] hover:bg-[var(--card-bg-hover)] transition disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--text-tertiary)]"
+          aria-label="Next year"
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+    </label>
   );
 }
 
