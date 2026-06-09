@@ -36,12 +36,14 @@ export interface LockedAnchor {
   lib: number;
 }
 
-/** Default LIB inflation component weights (sum to 1.0)
- *  CPI is primary driver; fertilizer and energy are agricultural input modifiers. */
+/** LIB inflation component weights (sum to 1.0).
+ *  Per Mars KPI guidance the LIB inflates by CPI only — the same basis the
+ *  Annual Lock uses — so fertilizer/energy weights are zeroed. The component
+ *  structure is kept for the Phase 5 index work (price/cost indices). */
 export const DEFAULT_LIB_INFLATION_WEIGHTS = {
-  cpi: 0.60,
-  fertilizer: 0.25,
-  energy: 0.15,
+  cpi: 1.0,
+  fertilizer: 0.0,
+  energy: 0.0,
 } as const;
 
 /** Default annual index rates (decimal, not %) — used when no per-year overrides provided */
@@ -66,8 +68,8 @@ export function getLIBInflationRate(
   return rates.cpi * weights.cpi + rates.fertilizer * weights.fertilizer + rates.energy * weights.energy;
 }
 
-/** Legacy flat rate (kept for backward compat / display) */
-export const LIB_INFLATION_RATE = 0.035;
+/** Flat display rate — matches the CPI default used for LIB inflation */
+export const LIB_INFLATION_RATE = 0.04;
 
 /** Program start year / baseline year */
 export const BASELINE_YEAR = 2024;
@@ -98,6 +100,56 @@ export const RABI_CROPS: ModeledCrop[] = ["potato", "wheat", "mustard"];
 
 /** Kharif season crops (independent land) */
 export const KHARIF_CROPS: ModeledCrop[] = ["mint", "rice"];
+
+/** Crops with user-facing intervention levers. Wheat has no interventions —
+ *  its acreage is derived from the Rabi land balance (see getWheatAcreageChange). */
+export const LEVER_CROPS: ModeledCrop[] = ["mint", "rice", "potato", "mustard"];
+
+/** Per-crop cost-to-revenue ratios, derived from the baseline crop files as
+ *  cost/revenue = 1 − netIncome/income, pooled across groups (Phase 1 of the
+ *  June 2026 client feedback; per-group splits arrive with the Phase 2 data fix). */
+export const CROP_COST_RATIOS: Record<ModeledCrop, number> = {
+  mint: 0.517,
+  rice: 0.584,
+  potato: 0.416,
+  wheat: 0.514,
+  mustard: 0.541,
+};
+
+/** Baseline Rabi acreage shares from the baseline crop files (fraction of total Rabi land) */
+export const RABI_ACREAGE_SHARES: Record<"potato" | "wheat" | "mustard", number> = {
+  potato: 0.400,
+  wheat: 0.362,
+  mustard: 0.237,
+};
+
+/** Wheat acreage is the Rabi balancing term: when potato or mustard expand,
+ *  wheat absorbs the land change. Returns wheat's derived % acreage change. */
+export function getWheatAcreageChange(crops: Record<ModeledCrop, CropLever>): number {
+  const { potato, wheat, mustard } = RABI_ACREAGE_SHARES;
+  const landDelta =
+    potato * (crops.potato.acreageChange / 100) +
+    mustard * (crops.mustard.acreageChange / 100);
+  return Math.round((-landDelta / wheat) * 100);
+}
+
+/** Normalize params before running the model: wheat carries no intervention
+ *  levers, so its yield/price/cost are zeroed and its acreage is derived from
+ *  the Rabi land balance. */
+export function normalizeScenarioParams(params: LIBScenarioParams): LIBScenarioParams {
+  return {
+    ...params,
+    crops: {
+      ...params.crops,
+      wheat: {
+        yieldChange: 0,
+        priceChange: 0,
+        costChange: 0,
+        acreageChange: getWheatAcreageChange(params.crops),
+      },
+    },
+  };
+}
 
 /** Max total T2 farmers */
 export const MAX_T2_FARMERS = 10_000;
@@ -210,8 +262,7 @@ export interface CropLever {
 export interface LIBScenarioParams {
   name: string;
   crops: Record<ModeledCrop, CropLever>;
-  otherOnFarmChange: number;    // % change
-  livestockChange: number;      // % change
+  otherOnFarmChange: number;    // % change — covers livestock too (no livestock interventions)
   offFarmChange: number;        // % change in off-farm income
   t2YearlyIntake: Record<number, number>; // year -> number of new T2 farmers
   includeT1Legacy: boolean;
@@ -248,6 +299,8 @@ export interface YearlyResult {
   t1AvgIncome: number;
   t1MedianIncome: number;
   t1AvgLIBGap: number;          // among below-LIB farmers
+  t1MedianLIBGap: number;       // among below-LIB farmers
+  t1MedianIncomeIncrease: number; // median income gain since joining (2024 for T1)
   t1MovedAboveLIB: number;      // only real transitions, not new entrants
   // Legacy results
   legacyTotalFarmers: number;
@@ -261,12 +314,17 @@ export interface YearlyResult {
   t2AvgIncome: number;
   t2MedianIncome: number;
   t2AvgLIBGap: number;
+  t2MedianLIBGap: number;
+  t2MedianIncomeIncrease: number; // median income gain since each cohort's join year
   t2MovedAboveLIB: number;
   // Non-program / supply shed results
   nonProgramTotalFarmers: number;
   nonProgramAboveLIB: number;
   nonProgramPctAboveLIB: number;
   nonProgramAvgIncome: number;
+  nonProgramMedianIncome: number;
+  nonProgramMedianLIBGap: number;
+  nonProgramMedianIncomeIncrease: number; // inflation-only drift vs baseline
   // Program total (T1 + Legacy + T2, excludes non-program)
   totalFarmers: number;
   totalAboveLIB: number;
@@ -316,33 +374,33 @@ export const LIB_METHODOLOGY: {
 }[] = [
   {
     parameter: "Crop Yield",
-    elasticity: "1.67 (on net income)",
-    maxEffect: "+167% crop net at +100%",
-    mechanism: "Revenue scales with yield; costs held separate. Applied only to farmers who actually grow each crop. Net elasticity > 1 because costs (40% of revenue) are fixed when yield changes.",
+    elasticity: "1.7–2.4 (per crop)",
+    maxEffect: "+171% to +240% crop net at +100%",
+    mechanism: "Revenue scales with yield; costs held separate. Applied only to farmers who actually grow each crop. Net elasticity > 1 because each crop's costs (42–58% of revenue, from the baseline survey) are fixed when yield changes.",
     source: "Farmer-level baseline survey",
     sourceUrl: null,
   },
   {
     parameter: "Crop Price",
-    elasticity: "1.67 (on net income)",
-    maxEffect: "+167% crop net at +100%",
+    elasticity: "1.7–2.4 (per crop)",
+    maxEffect: "+171% to +240% crop net at +100%",
     mechanism: "Direct arithmetic on revenue (price x quantity). Same net elasticity as yield — costs stay fixed while revenue scales. Applied per-crop to actual growers.",
     source: "Mechanical (price x quantity)",
     sourceUrl: null,
   },
   {
     parameter: "Cost of Production",
-    elasticity: "-0.67 (on net income)",
-    maxEffect: "-33% crop net at +50%",
-    mechanism: "Baseline costs estimated at 40% of revenue. A c% cost change adjusts production costs. Net income = revenue - costs. Costs are ~40% of revenue, so a 50% cost increase cuts net income by ~33%.",
-    source: "FAO cost structure benchmarks",
-    sourceUrl: "https://doi.org/10.4060/cb1447en",
+    elasticity: "-0.7 to -1.4 (per crop)",
+    maxEffect: "Scales with each crop's cost share",
+    mechanism: "Per-crop cost ratios derived from the baseline crop data (cost/revenue = 1 − net income/income): mint 52%, rice 58%, potato 42%, wheat 51%, mustard 54%. A c% cost change adjusts that crop's production costs; net income = revenue − costs.",
+    source: "Farmer-level baseline survey (crop files)",
+    sourceUrl: null,
   },
   {
     parameter: "Acreage Change",
     elasticity: "1.0 (on net income)",
     maxEffect: "+100% crop net at +100%",
-    mechanism: "Expanding cultivated area increases both revenue and costs proportionally. Rabi crops (potato, wheat, mustard) compete for the same land — changes are linked.",
+    mechanism: "Expanding cultivated area increases both revenue and costs proportionally. Rabi crops compete for the same land: wheat has no intervention levers and absorbs the land balance when potato or mustard acreage changes (baseline Rabi shares: potato 40%, wheat 36%, mustard 24%).",
     source: "Otsuka & Place (2001)",
     sourceUrl: "https://doi.org/10.1016/S0305-750X(01)00012-4",
   },
@@ -374,15 +432,15 @@ export const LIB_METHODOLOGY: {
     parameter: "LIB Benchmark",
     elasticity: "N/A (target line)",
     maxEffect: `$${LIB_2024.toLocaleString()} -> ~$${Math.round(LIB_2024 * Math.pow(1 + LIB_INFLATION_RATE, 6)).toLocaleString()}`,
-    mechanism: `Baseline LIB (2024): $${LIB_2024.toLocaleString()}. Inflates at ${(LIB_INFLATION_RATE * 100).toFixed(1)}% per year (CPI + agricultural input costs). Rising benchmark makes the target harder each year.`,
-    source: "CPI + input cost index",
+    mechanism: `Baseline LIB (2024): $${LIB_2024.toLocaleString()}. Inflates by CPI only (default ${(LIB_INFLATION_RATE * 100).toFixed(1)}% per year), matching the Annual Lock basis per Mars KPI guidance. Rising benchmark makes the target harder each year.`,
+    source: "India CPI (Mars KPI guidance)",
     sourceUrl: null,
   },
   {
-    parameter: "Other On-Farm / Livestock",
+    parameter: "Other On-Farm Income",
     elasticity: "1.0 (direct)",
     maxEffect: "+-100% at max",
-    mechanism: "Applied as a simple percentage change to each farmer's baseline other on-farm or livestock income, scaled by tenure.",
+    mechanism: "Applied as a simple percentage change to each farmer's baseline other on-farm income, including livestock (there are no livestock-specific interventions), scaled by tenure.",
     source: "Baseline survey decomposition",
     sourceUrl: null,
   },
@@ -534,15 +592,15 @@ function projectFarmerIncome(
     const effCost = (lever.costChange / 100) * tenureFrac;
     const effAcreage = (lever.acreageChange / 100) * tenureFrac;
 
-    const COST_RATIO = 0.4;
+    const costRatio = CROP_COST_RATIOS[crop];
 
     if (baseCropIncome <= 0) {
       totalIncome += baseCropIncome * (1 + effAcreage);
       continue;
     }
 
-    const baseRevenue = baseCropIncome / (1 - COST_RATIO);
-    const baseCost = baseRevenue * COST_RATIO;
+    const baseRevenue = baseCropIncome / (1 - costRatio);
+    const baseCost = baseRevenue * costRatio;
 
     const projRevenue = baseRevenue * (1 + effYield) * (1 + effPrice) * (1 + effAcreage);
     const projCost = baseCost * (1 + effCost) * (1 + effAcreage);
@@ -551,14 +609,10 @@ function projectFarmerIncome(
     totalIncome += projCropIncome;
   }
 
-  // ── 2. Other on-farm income ──
+  // ── 2. Other on-farm income (includes livestock — no livestock interventions) ──
   const globalTenure = getTenureFraction(yearsInProgram);
   const effOther = (params.otherOnFarmChange / 100) * globalTenure;
-  totalIncome += baseline.otherCropsIncome * baseInflation * (1 + effOther);
-
-  // ── 3. Livestock income ──
-  const effLivestock = (params.livestockChange / 100) * globalTenure;
-  totalIncome += baseline.livestockIncome * baseInflation * (1 + effLivestock);
+  totalIncome += (baseline.otherCropsIncome + baseline.livestockIncome) * baseInflation * (1 + effOther);
 
   // ── 4. Off-farm income ──
   const effOffFarm = (params.offFarmChange / 100) * globalTenure;
@@ -583,8 +637,11 @@ function projectFarmerIncome(
  */
 export function runLIBScenario(
   farmers: Farmer[],
-  params: LIBScenarioParams
+  rawParams: LIBScenarioParams
 ): LIBScenarioResult {
+  // Wheat carries no intervention levers — its acreage is derived from the Rabi land balance
+  const params = normalizeScenarioParams(rawParams);
+
   const allBaselines = farmers
     .map(extractBaseline)
     .filter((b): b is FarmerBaseline => b != null);
@@ -679,7 +736,7 @@ export function runLIBScenario(
     }
 
     // ── T2 projections ──
-    const t2ActiveFarmers: { income: number; wasAbovePrev: boolean }[] = [];
+    const t2ActiveFarmers: { income: number; wasAbovePrev: boolean; incomeIncrease: number }[] = [];
     for (const [joinYear, cohortFarmers] of Object.entries(t2CohortSchedule)) {
       const jy = Number(joinYear);
       if (jy > year) continue;
@@ -689,13 +746,31 @@ export function runLIBScenario(
         const wasAbovePrev = jy === year
           ? farmer.totalNetIncome > baselineLIB // new entrant: check baseline status
           : false; // existing: tracked below
-        t2ActiveFarmers.push({ income, wasAbovePrev });
+        const joinIncome = projectFarmerIncome(farmer, params, jy, jy);
+        t2ActiveFarmers.push({ income, wasAbovePrev, incomeIncrease: income - joinIncome });
       }
     }
 
     const t2Incomes = t2ActiveFarmers.map((f) => f.income);
     const t2Above = t2Incomes.filter((inc) => inc > lib).length;
     const t2Below = t2Incomes.filter((inc) => inc <= lib);
+
+    // Baseline year: no T2 cohort exists yet, but the line should start at the
+    // T2 survey baseline rather than 0 (display stats only — counts stay 0).
+    const t2BaselineSurveyStats = year === BASELINE_YEAR && t2Incomes.length === 0 && t2Base.length > 0
+      ? (() => {
+          const incomes = t2Base.map((f) => f.totalNetIncome);
+          const above = incomes.filter((inc) => inc > lib).length;
+          const below = incomes.filter((inc) => inc <= lib);
+          return {
+            pct: (above / incomes.length) * 100,
+            avg: mean(incomes),
+            med: median(incomes),
+            avgGap: below.length > 0 ? mean(below.map((inc) => lib - inc)) : 0,
+            medGap: below.length > 0 ? median(below.map((inc) => lib - inc)) : 0,
+          };
+        })()
+      : null;
 
     // T2 "moved above": only count those who were below LIB in the *previous* year
     // and are now above. New entrants who were already above don't count.
@@ -757,6 +832,14 @@ export function runLIBScenario(
 
     const totalPctAboveLIB = totalWeight > 0 ? (totalAbove / totalFarmersDisplay) * 100 : 0;
 
+    // ── Median metrics for the cohort tiles ──
+    const t1BelowGaps = t1SampleBelow.map((inc) => lib - inc);
+    const t2BelowGaps = t2Below.map((inc) => lib - inc);
+    const nonProgramBelowGaps = nonProgramSampleIncomes.filter((inc) => inc <= lib).map((inc) => lib - inc);
+    const t1Increases = t1Active.map((f, i) => t1SampleIncomes[i] - f.totalNetIncome);
+    const t2Increases = t2ActiveFarmers.map((f) => f.incomeIncrease);
+    const nonProgramIncreases = controlSample.map((f) => f.totalNetIncome * (baseInflation - 1));
+
     // ── Supply Shed KPI ──
     // numerator = program above + non-program above (extrapolated)
     // denominator = total supply shed population
@@ -772,7 +855,9 @@ export function runLIBScenario(
       t1PctAboveLIB: t1Pct,
       t1AvgIncome: t1AvgInc,
       t1MedianIncome: t1SampleIncomes.length > 0 ? median(t1SampleIncomes) : 0,
-      t1AvgLIBGap: t1SampleBelow.length > 0 ? mean(t1SampleBelow.map((inc) => lib - inc)) : 0,
+      t1AvgLIBGap: t1SampleBelow.length > 0 ? mean(t1BelowGaps) : 0,
+      t1MedianLIBGap: t1BelowGaps.length > 0 ? median(t1BelowGaps) : 0,
+      t1MedianIncomeIncrease: t1Increases.length > 0 ? median(t1Increases) : 0,
       t1MovedAboveLIB: t1MovedScaled,
       legacyTotalFarmers: legacyTotalDisplay,
       legacyAboveLIB: legacyAbove,
@@ -780,15 +865,28 @@ export function runLIBScenario(
       legacyAvgIncome: legacyAvgInc,
       t2TotalFarmers: t2Incomes.length,
       t2AboveLIB: t2Above,
-      t2PctAboveLIB: t2Incomes.length > 0 ? (t2Above / t2Incomes.length) * 100 : 0,
-      t2AvgIncome: t2AvgInc,
-      t2MedianIncome: t2Incomes.length > 0 ? median(t2Incomes) : 0,
-      t2AvgLIBGap: t2Below.length > 0 ? mean(t2Below.map((inc) => lib - inc)) : 0,
+      t2PctAboveLIB: t2BaselineSurveyStats
+        ? t2BaselineSurveyStats.pct
+        : t2Incomes.length > 0 ? (t2Above / t2Incomes.length) * 100 : 0,
+      t2AvgIncome: t2BaselineSurveyStats ? t2BaselineSurveyStats.avg : t2AvgInc,
+      t2MedianIncome: t2BaselineSurveyStats
+        ? t2BaselineSurveyStats.med
+        : t2Incomes.length > 0 ? median(t2Incomes) : 0,
+      t2AvgLIBGap: t2BaselineSurveyStats
+        ? t2BaselineSurveyStats.avgGap
+        : t2Below.length > 0 ? mean(t2BelowGaps) : 0,
+      t2MedianLIBGap: t2BaselineSurveyStats
+        ? t2BaselineSurveyStats.medGap
+        : t2BelowGaps.length > 0 ? median(t2BelowGaps) : 0,
+      t2MedianIncomeIncrease: t2Increases.length > 0 ? median(t2Increases) : 0,
       t2MovedAboveLIB: t2Moved,
       nonProgramTotalFarmers: nonProgramTotal,
       nonProgramAboveLIB: nonProgramAbove,
       nonProgramPctAboveLIB: nonProgramPctAbove,
       nonProgramAvgIncome: nonProgramAvgInc,
+      nonProgramMedianIncome: nonProgramSampleIncomes.length > 0 ? median(nonProgramSampleIncomes) : 0,
+      nonProgramMedianLIBGap: nonProgramBelowGaps.length > 0 ? median(nonProgramBelowGaps) : 0,
+      nonProgramMedianIncomeIncrease: nonProgramIncreases.length > 0 ? median(nonProgramIncreases) : 0,
       totalFarmers: totalFarmersDisplay,
       totalAboveLIB: totalAbove,
       totalPctAboveLIB,
@@ -897,14 +995,14 @@ function computeCropContributions(
 
     // Project with full tenure (T1 farmers, max years)
     const lever = params.crops[crop];
-    const COST_RATIO = 0.4;
+    const costRatio = CROP_COST_RATIOS[crop];
     const projectedAvg = mean(
       growers.map((f) => {
         const baseCropIncome = f.cropIncomes[crop];
         const baseRevenue = baseCropIncome > 0
-          ? baseCropIncome / (1 - COST_RATIO)
-          : Math.abs(baseCropIncome) * COST_RATIO / (1 - COST_RATIO);
-        const baseCost = baseRevenue * COST_RATIO;
+          ? baseCropIncome / (1 - costRatio)
+          : Math.abs(baseCropIncome) * costRatio / (1 - costRatio);
+        const baseCost = baseRevenue * costRatio;
 
         const projRevenue = baseRevenue *
           (1 + lever.yieldChange / 100) *
@@ -986,7 +1084,6 @@ export function createDefaultParams(name = "Untitled Scenario", projectionYears 
     name,
     crops,
     otherOnFarmChange: 0,
-    livestockChange: 0,
     offFarmChange: 0,
     t2YearlyIntake: projectionYears === 6 ? { ...DEFAULT_T2_INTAKE } : generateDefaultT2Intake(projectionYears),
     includeT1Legacy: true,  // now on by default since legacy is part of supply shed
@@ -1020,7 +1117,7 @@ export function getPresetScenarios(projectionYears = 6): LIBScenarioParams[] {
   const t2Intake = generateDefaultT2Intake(projectionYears);
   for (const yr of Object.keys(t2Intake)) t2Intake[Number(yr)] = 3000;
   t2.t2YearlyIntake = t2Intake;
-  t2.livestockChange = 10;
+  t2.otherOnFarmChange = 10;
 
   // 3. T1 Diversification — shift T1 farmers toward higher-value crops
   const t1 = base("T1 Diversification");
@@ -1030,7 +1127,6 @@ export function getPresetScenarios(projectionYears = 6): LIBScenarioParams[] {
   t1.crops.wheat = { yieldChange: 5,  priceChange: 0,  costChange: 0,  acreageChange: -15 };
   t1.crops.mustard = { yieldChange: 10, priceChange: 10, costChange: -5, acreageChange: 10 };
   t1.otherOnFarmChange = 15;
-  t1.livestockChange = 10;
 
   return [bau, t2, t1];
 }
@@ -1302,8 +1398,7 @@ export function downloadScenarioExcel(
     ["Supply Shed Population", (scenario.supplyShEdPopulation ?? DEFAULT_SUPPLY_SHED_POPULATION).toLocaleString()],
     ["Extrapolation Rate", `${((scenario.extrapolationRate ?? DEFAULT_EXTRAPOLATION_RATE) * 100).toFixed(0)}%`],
     ["Lever Mode", scenario.leverMode ?? "percentage"],
-    ["Other On-Farm Income Change", fmtPct(scenario.otherOnFarmChange)],
-    ["Livestock Income Change", fmtPct(scenario.livestockChange)],
+    ["Other On-Farm Income Change (incl. livestock)", fmtPct(scenario.otherOnFarmChange)],
     ["Off-Farm Income Change", fmtPct(scenario.offFarmChange)],
   ];
   settings.forEach(([label, val], i) => {
@@ -1466,7 +1561,6 @@ export function downloadScenarioExcel(
     ["projectionYears", scenario.projectionYears ?? 6],
     ["includeT1Legacy", scenario.includeT1Legacy ? 1 : 0],
     ["otherOnFarmChange", scenario.otherOnFarmChange],
-    ["livestockChange", scenario.livestockChange],
     ["offFarmChange", scenario.offFarmChange],
     ["leverMode", scenario.leverMode ?? "percentage"],
     ["supplyShEdPopulation", scenario.supplyShEdPopulation ?? DEFAULT_SUPPLY_SHED_POPULATION],
@@ -1602,8 +1696,8 @@ function parseExcelDataSheet(sheet: XLSX.WorkSheet): LIBScenarioParams | { error
     name: kv.name || "Imported Scenario",
     targetYear: Number(kv.targetYear) || 2030,
     includeT1Legacy: kv.includeT1Legacy === 1 || kv.includeT1Legacy === "1",
-    otherOnFarmChange: Number(kv.otherOnFarmChange) || 0,
-    livestockChange: Number(kv.livestockChange) || 0,
+    // Older exports carried a separate livestockChange — fold it into other on-farm
+    otherOnFarmChange: Number(kv.otherOnFarmChange) || Number(kv.livestockChange) || 0,
     crops: cropData,
     t2YearlyIntake: intakeData,
   };
@@ -1654,8 +1748,7 @@ function validateScenarioParams(raw: Record<string, unknown>): LIBScenarioParams
   return {
     name: raw.name as string,
     crops,
-    otherOnFarmChange: clamp(Number(raw.otherOnFarmChange) || 0, -50, 100),
-    livestockChange: clamp(Number(raw.livestockChange) || 0, -50, 100),
+    otherOnFarmChange: clamp(Number(raw.otherOnFarmChange) || Number(raw.livestockChange) || 0, -50, 100),
     offFarmChange: clamp(Number(raw.offFarmChange) || 0, -50, 100),
     t2YearlyIntake,
     includeT1Legacy: raw.includeT1Legacy != null ? Boolean(raw.includeT1Legacy) : true,
@@ -1827,8 +1920,7 @@ export function downloadComparisonExcel(
     { label: "Target Year", getter: (p) => p.targetYear.toString() },
     { label: "Projection Years", getter: (p) => (p.projectionYears ?? 6).toString() },
     { label: "Include T1 Legacy", getter: (p) => p.includeT1Legacy ? "Yes" : "No" },
-    { label: "Other On-Farm Change", getter: (p) => p.otherOnFarmChange + "%" },
-    { label: "Livestock Change", getter: (p) => p.livestockChange + "%" },
+    { label: "Other On-Farm Change (incl. livestock)", getter: (p) => p.otherOnFarmChange + "%" },
     { label: "T2 Total Intake", getter: (p) => Object.values(p.t2YearlyIntake).reduce((a, b) => a + b, 0).toLocaleString() },
   ];
 

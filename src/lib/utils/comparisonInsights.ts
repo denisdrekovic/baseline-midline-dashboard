@@ -75,7 +75,6 @@ function summarizeLevers(params: LIBScenarioParams): string {
     parts.push(`crop adjustments (${names.join(", ")})`);
   }
   if (params.otherOnFarmChange !== 0) parts.push(`other on-farm income ${params.otherOnFarmChange > 0 ? "+" : ""}${params.otherOnFarmChange}%`);
-  if (params.livestockChange !== 0) parts.push(`livestock ${params.livestockChange > 0 ? "+" : ""}${params.livestockChange}%`);
   if (params.includeT1Legacy) parts.push("T1 legacy included");
   const t2Total = Object.values(params.t2YearlyIntake).reduce((a, b) => a + b, 0);
   if (t2Total > 0) parts.push(`${formatNumber(t2Total)} T2 intake`);
