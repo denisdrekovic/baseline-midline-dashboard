@@ -5,7 +5,7 @@ One page of decisions needed to unblock the rest of the June 9 roadmap. Status f
 ## Where things stand
 
 - **Shipped to branch** (`client-feedback-2026-06-phase1`, [PR #2](https://github.com/denisdrekovic/baseline-midline-dashboard/pull/2), not deployed): Phase 1 per-crop cost ratios + all standalone logic fixes + independent review fixes. Merging to main deploys.
-- **Phase 2 (Paul/Azfar)**: largely pre-solved — `docs/PHASE2-DATA-INVESTIGATION.md` shows the crop→farmer join is recoverable from row order today, and includes per-group cost ratios. Remaining asks: re-export with true farmer ids, and a field dictionary explaining `expenses`.
+- **Phase 2 (Paul/Azfar)**: solved on our side — the root cause was our own CSV converter writing the wrong id column. PR #3 repairs all 9,362 crop records (true farmer id + group label) and fixes the converter; this also fixes a live bug where the Crops analytics silently computed on ~40% of rows. Remaining asks for the data side: a ground-truth re-export to validate the reconstruction (527 rows have cross-group yield/acre ambiguity), and the field dictionary explaining `expenses`.
 - **Gated on this meeting**: all Stream B interface work (tiles, chart fixes, lever panel reorder, compare page).
 - **Gated on Tanager**: Phase 4's "has T-1 plateaued on mint" assumption.
 
