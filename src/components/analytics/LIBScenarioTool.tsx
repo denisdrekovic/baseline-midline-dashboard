@@ -39,7 +39,9 @@ import {
   type LeverMode,
   type CropTenureRamps,
   MODELED_CROPS,
+  LEVER_CROPS,
   RABI_CROPS,
+  getWheatAcreageChange,
   BASELINE_YEAR,
   MAX_T2_FARMERS,
   MIN_PROJECTION_YEARS,
@@ -848,10 +850,9 @@ export default function LIBScenarioTool() {
     const defaults = createDefaultParams("", params.projectionYears ?? 6);
     return JSON.stringify(params.crops) !== JSON.stringify(defaults.crops) ||
       params.otherOnFarmChange !== 0 ||
-      params.livestockChange !== 0 ||
       params.offFarmChange !== 0 ||
       !params.includeT1Legacy ||
-      JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(generateDefaultT2Intake(params.projectionYears ?? 6)) ||
+      JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(defaults.t2YearlyIntake) ||
       params.supplyShEdPopulation !== DEFAULT_SUPPLY_SHED_POPULATION ||
       params.extrapolationRate !== 0.5 ||
       params.leverMode !== "percentage";
@@ -861,6 +862,9 @@ export default function LIBScenarioTool() {
     () => Object.values(params.t2YearlyIntake).reduce((a, b) => a + b, 0),
     [params.t2YearlyIntake]
   );
+
+  // Wheat has no intervention levers — its acreage is derived from the Rabi land balance
+  const wheatAcreageChange = useMemo(() => getWheatAcreageChange(params.crops), [params.crops]);
 
   // Chart data — full yearly results from model
   const trajectoryDataRaw = useMemo(
@@ -919,7 +923,7 @@ export default function LIBScenarioTool() {
   // Count active lever changes for the badge
   const activeLeverCount = useMemo(() => {
     let count = 0;
-    for (const crop of MODELED_CROPS) {
+    for (const crop of LEVER_CROPS) {
       const l = params.crops[crop];
       if (l.yieldChange !== 0) count++;
       if (l.priceChange !== 0) count++;
@@ -927,10 +931,10 @@ export default function LIBScenarioTool() {
       if (l.acreageChange !== 0) count++;
     }
     if (params.otherOnFarmChange !== 0) count++;
-    if (params.livestockChange !== 0) count++;
     if (params.offFarmChange !== 0) count++;
-    if (params.includeT1Legacy) count++;
-    if (JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(generateDefaultT2Intake(params.projectionYears ?? 6))) count++;
+    if (!params.includeT1Legacy) count++;
+    const defaults = createDefaultParams("", params.projectionYears ?? 6);
+    if (JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(defaults.t2YearlyIntake)) count++;
     return count;
   }, [params]);
 
@@ -1433,7 +1437,7 @@ export default function LIBScenarioTool() {
                       Crop Levers
                     </h3>
                     <div className="space-y-2">
-                      {MODELED_CROPS.map((crop) => (
+                      {LEVER_CROPS.map((crop) => (
                         <CropLeverGroup
                           key={crop}
                           crop={crop}
@@ -1443,6 +1447,34 @@ export default function LIBScenarioTool() {
                           leverMode={params.leverMode ?? "percentage"}
                         />
                       ))}
+                      {/* Wheat — no intervention levers; acreage balances Rabi land */}
+                      <div className="space-y-1 pb-3" style={{ borderBottom: "1px solid var(--card-border)" }}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="w-2 h-2 rounded-full" style={{ background: CROP_COLORS.wheat || "#888" }} />
+                          <span className="text-[11px] font-semibold text-[var(--text-primary)]">{CROP_NAMES.wheat || "Wheat"}</span>
+                          <span className="text-[8px] px-1 py-0.5 rounded bg-[var(--card-bg-hover)] text-[var(--text-tertiary)]">
+                            Rabi · auto
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-[var(--text-tertiary)] flex-1">Area (Rabi land balance)</span>
+                          <span
+                            className="text-[10px] font-mono font-bold w-10 text-right shrink-0"
+                            style={{
+                              color: wheatAcreageChange > 0
+                                ? "var(--color-accent)"
+                                : wheatAcreageChange < 0
+                                  ? "var(--color-negative)"
+                                  : "var(--text-tertiary)",
+                            }}
+                          >
+                            {wheatAcreageChange > 0 ? "+" : ""}{wheatAcreageChange}%
+                          </span>
+                        </div>
+                        <p className="text-[9px] text-[var(--text-tertiary)]">
+                          No wheat interventions — area adjusts when Potato or Mustard area changes
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -1476,18 +1508,7 @@ export default function LIBScenarioTool() {
                           min={-50}
                           max={100}
                         />
-                        <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5 ml-10">Non-modeled crops & small activities</p>
-                      </div>
-                      <div>
-                        <LeverSlider
-                          label="Livestock"
-                          value={params.livestockChange}
-                          onChange={(v) => setParams((p) => ({ ...p, livestockChange: v }))}
-                          color="#FFB703"
-                          min={-50}
-                          max={100}
-                        />
-                        <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5 ml-10">Livestock income (separate from crops)</p>
+                        <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5 ml-10">Non-modeled crops, livestock & small activities</p>
                       </div>
                       <div>
                         <LeverSlider
@@ -1549,23 +1570,30 @@ export default function LIBScenarioTool() {
                       <div>
                         <label className="text-[10px] text-[var(--text-secondary)] font-medium">Lever Input Mode</label>
                         <div className="flex gap-1 mt-1">
-                          {([["percentage", "%"] , ["fixed", "₹"]] as const).map(([mode, label]) => (
-                            <button
-                              key={mode}
-                              onClick={() => setParams((p) => ({ ...p, leverMode: mode as LeverMode }))}
-                              className="flex-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-colors"
-                              style={{
-                                background: params.leverMode === mode ? "rgba(0,161,125,0.15)" : "var(--card-bg)",
-                                border: `1px solid ${params.leverMode === mode ? "var(--color-accent)" : "var(--card-border)"}`,
-                                color: params.leverMode === mode ? "var(--color-accent)" : "var(--text-tertiary)",
-                              }}
-                            >
-                              {label} {mode === "percentage" ? "Change" : "Value"}
-                            </button>
-                          ))}
+                          {([["percentage", "%"] , ["fixed", "₹"]] as const).map(([mode, label]) => {
+                            const isDisabled = mode === "fixed";
+                            return (
+                              <button
+                                key={mode}
+                                disabled={isDisabled}
+                                onClick={() => !isDisabled && setParams((p) => ({ ...p, leverMode: mode as LeverMode }))}
+                                className="flex-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-colors"
+                                title={isDisabled ? "Target values arrive with the driver-based update" : undefined}
+                                style={{
+                                  background: params.leverMode === mode ? "rgba(0,161,125,0.15)" : "var(--card-bg)",
+                                  border: `1px solid ${params.leverMode === mode ? "var(--color-accent)" : "var(--card-border)"}`,
+                                  color: params.leverMode === mode ? "var(--color-accent)" : "var(--text-tertiary)",
+                                  opacity: isDisabled ? 0.45 : 1,
+                                  cursor: isDisabled ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                {label} {mode === "percentage" ? "Change" : "Value"}
+                              </button>
+                            );
+                          })}
                         </div>
                         <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5">
-                          {params.leverMode === "percentage" ? "Enter changes as % from baseline" : "Enter target values (e.g., INR 1,200/kg)"}
+                          Enter changes as % from baseline. ₹ target values arrive with the driver-based update.
                         </p>
                       </div>
                     </div>
@@ -1766,7 +1794,7 @@ export default function LIBScenarioTool() {
                   8,500 T1 Core farmers, 8,000+ Legacy/offboarded farmers, up to 10,000 T2 farmers, and the non-program supply shed population
                   (modeled from control group data). The KPI = % of total supply shed at or above the inflation-adjusted LIB.
                   Reported years show actual calculated KPIs; projected years run scenarios forward from the most recent reported year.
-                  LIB inflation uses component-based indices (CPI 60%, fertilizer 25%, energy 15%).
+                  The LIB inflates by CPI only, matching the Annual Lock basis per Mars KPI guidance.
                 </p>
 
                 {/* Table */}
@@ -1821,15 +1849,22 @@ export default function LIBScenarioTool() {
                   </p>
                   <p>
                     <strong className="text-[var(--text-secondary)]">Rabi land balance:</strong> Potato, wheat, and mustard compete for the same
-                    Rabi-season land. Expanding one crop&apos;s acreage is linked to the others in the UI to reflect this constraint.
+                    Rabi-season land. Wheat has no intervention levers — when potato or mustard acreage changes, wheat&apos;s acreage absorbs the
+                    land balance (baseline Rabi shares: potato 40%, wheat 36%, mustard 24%).
                   </p>
                   <p>
-                    <strong className="text-[var(--text-secondary)]">Cost model:</strong> Baseline costs are estimated at 40% of revenue for each crop.
-                    This is a simplification — actual cost ratios vary by crop and region. The cost lever adjusts this estimate.
+                    <strong className="text-[var(--text-secondary)]">Cost model:</strong> Per-crop cost ratios are derived from the baseline crop
+                    data as cost/revenue = 1 − net income/income: mint 52%, rice 58%, potato 42%, wheat 51%, mustard 54%. Ratios are pooled across
+                    farmer groups until group-tagged crop data lands. The cost lever adjusts each crop&apos;s own cost base.
                   </p>
                   <p>
                     <strong className="text-[var(--text-secondary)]">Off-farm income:</strong> Income from wages, remittances, and non-agricultural
-                    activities is held constant across all scenarios (not affected by levers).
+                    activities moves with the Off-Farm lever (scaled by tenure for T2); with the lever at 0 it inflates with the baseline rate.
+                  </p>
+                  <p>
+                    <strong className="text-[var(--text-secondary)]">KPI composition effect:</strong> The T2 baseline survey sample is substantially
+                    better-off than T1 or Control (67% vs 11% vs 4% above LIB in 2024). Enrolling T2 cohorts therefore raises the Supply Shed KPI
+                    even with no income gains — year-over-year KPI movement reflects enrollment composition as well as income change.
                   </p>
                 </div>
               </div>
