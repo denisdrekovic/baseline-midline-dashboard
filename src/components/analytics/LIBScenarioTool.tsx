@@ -50,6 +50,7 @@ import {
   EXTRAPOLATION_RATES,
   DEFAULT_TENURE_CURVE,
   PROGRAM_T1_FARMERS,
+  PROGRAM_LEGACY_FARMERS,
   generateYears,
   generateDefaultT2Intake,
   generateDefaultT1Offboarding,
@@ -854,6 +855,8 @@ export default function LIBScenarioTool() {
       !params.includeT1Legacy ||
       JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(defaults.t2YearlyIntake) ||
       params.supplyShEdPopulation !== DEFAULT_SUPPLY_SHED_POPULATION ||
+      (params.t1ProgramFarmers ?? PROGRAM_T1_FARMERS) !== PROGRAM_T1_FARMERS ||
+      (params.t1LegacyFarmers ?? PROGRAM_LEGACY_FARMERS) !== PROGRAM_LEGACY_FARMERS ||
       params.extrapolationRate !== 0.5 ||
       params.leverMode !== "percentage";
   }, [params]);
@@ -897,6 +900,18 @@ export default function LIBScenarioTool() {
 
   // Active result is always the summary (target year)
   const activeResult = result.summary;
+
+  // T1 tile reflects Legacy when included — population, not just the active core
+  const t1Tile = useMemo(() => {
+    const inclLegacy = params.includeT1Legacy && activeResult.legacyTotalFarmers > 0;
+    const total = activeResult.t1TotalFarmers + (inclLegacy ? activeResult.legacyTotalFarmers : 0);
+    const above = activeResult.t1AboveLIB + (inclLegacy ? activeResult.legacyAboveLIB : 0);
+    return {
+      label: inclLegacy ? "T1 + Legacy Above LIB" : "T1 Above LIB",
+      pct: total > 0 ? (above / total) * 100 : 0,
+      sub: `${formatNumber(above)} of ${formatNumber(total)}`,
+    };
+  }, [activeResult, params.includeT1Legacy]);
 
   // Chart reference year for the highlight marker
   const chartRefYear = params.targetYear;
@@ -1113,10 +1128,10 @@ export default function LIBScenarioTool() {
             />
             <KPICard label="Avg Income" numericValue={activeResult.totalAvgIncome} formatter={formatUSD} subValue={`LIB: ${formatUSD(activeResult.lib)}`} icon={DollarSign} color="#007BFF" />
             <KPICard
-              label="T1 Above LIB"
-              numericValue={activeResult.t1PctAboveLIB}
+              label={t1Tile.label}
+              numericValue={t1Tile.pct}
               formatter={formatPercent}
-              subValue={`${formatNumber(activeResult.t1AboveLIB)} of ${formatNumber(activeResult.t1TotalFarmers)}`}
+              subValue={t1Tile.sub}
               icon={Users}
               color="#007BFF"
             />
@@ -1606,6 +1621,21 @@ export default function LIBScenarioTool() {
                       Cohorts & Coverage
                     </h3>
                     <div className="space-y-3">
+                      {/* T1 program headcount */}
+                      <div>
+                        <label className="text-[10px] text-[var(--text-secondary)] font-medium">T1 Program Farmers</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step={500}
+                          value={params.t1ProgramFarmers ?? PROGRAM_T1_FARMERS}
+                          onChange={(e) => setParams((p) => ({ ...p, t1ProgramFarmers: Math.max(0, Number(e.target.value)) }))}
+                          className="w-full mt-1 px-2 py-1 rounded-lg text-[11px] font-mono text-[var(--text-primary)] outline-none"
+                          style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+                        />
+                        <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5">Active T1 program headcount — survey sample scales to this total</p>
+                      </div>
+
                       {/* T1 Legacy toggle */}
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -1619,6 +1649,23 @@ export default function LIBScenarioTool() {
                           <p className="text-[9px] text-[var(--text-tertiary)]">Offboarded farmers (inflation-only growth, part of supply shed)</p>
                         </div>
                       </label>
+
+                      {/* T1 legacy headcount */}
+                      {params.includeT1Legacy && (
+                        <div>
+                          <label className="text-[10px] text-[var(--text-secondary)] font-medium">T1 Legacy Farmers</label>
+                          <input
+                            type="number"
+                            min={0}
+                            step={500}
+                            value={params.t1LegacyFarmers ?? PROGRAM_LEGACY_FARMERS}
+                            onChange={(e) => setParams((p) => ({ ...p, t1LegacyFarmers: Math.max(0, Number(e.target.value)) }))}
+                            className="w-full mt-1 px-2 py-1 rounded-lg text-[11px] font-mono text-[var(--text-primary)] outline-none"
+                            style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}
+                          />
+                          <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5">Offboarded headcount before this plan&apos;s offboarding starts</p>
+                        </div>
+                      )}
 
                       {/* T2 Yearly Intake */}
                       <div>
@@ -1709,7 +1756,7 @@ export default function LIBScenarioTool() {
                                 <input
                                   type="number"
                                   min={0}
-                                  max={PROGRAM_T1_FARMERS}
+                                  max={params.t1ProgramFarmers ?? PROGRAM_T1_FARMERS}
                                   step={100}
                                   value={params.t1Offboarding?.[year] ?? 0}
                                   onChange={(e) => setParams((p) => ({
