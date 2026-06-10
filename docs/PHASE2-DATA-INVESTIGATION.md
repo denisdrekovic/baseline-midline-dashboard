@@ -60,10 +60,10 @@ Two observations worth carrying into Phases 3–4:
 
 ## Asks for the data team (the durable fix)
 
-1. Re-export crop-level records keyed by the **true farmer id**, carrying the **group label** (T-1/T-2/Control) on each row.
+1. Re-export crop-level records keyed by the **true farmer id**, carrying the **group label** (T-1/T-2/Control) on each row — this validates the reconstruction (especially the `joinAmbiguous`-flagged rows).
 2. A **field dictionary** for the crop module: what exactly do `income`, `expenses`, and `netIncome` include? What cost components explain the gap between `expenses` and `income − netIncome`?
-3. Confirm the `id` column's meaning (enumeration cluster?) so the 33-code structure is documented.
-4. Confirm one-row-per-farmer-per-crop is the intended grain (mint's strict 1:1 suggests yes).
+
+(Not needed, just context: the old 33-value `id` column was most likely an enumeration-cluster code. It has been replaced by the farmer id and nothing consumes it; its meaning only matters if cluster-aware statistics are ever wanted. Mint's strict 1:1 row-per-farmer structure confirms the intended grain.)
 
 ## Validation checklist once new data lands
 
