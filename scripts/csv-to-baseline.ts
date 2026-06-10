@@ -447,7 +447,10 @@ function main() {
     const cropRecords = rows
       .filter((r) => r[cfg.farmerFlag] === "1")
       .map((r) => ({
-        id: num(r.ID) ?? num(r.id),
+        // r.id is the farmer id (same key farmers use); r.ID is an
+        // enumeration-cluster code and must NOT be used as the record id
+        id: num(r.id),
+        group: str(r.Project),
         yield: num(r[cfg.productivityField]),
         acre: num(r[cfg.acreField]),
         income: num(r[cfg.incomeUsd]),

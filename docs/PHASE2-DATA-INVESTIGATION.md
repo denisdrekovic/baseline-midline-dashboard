@@ -2,6 +2,16 @@
 
 **Date:** June 10, 2026
 **For:** Paul & Azfar (Phase 2 of the June 9 LIB calculator feedback)
+
+> **STATUS UPDATE (June 10, later):** The repair has been applied. The root cause
+> was found in our own converter — `scripts/csv-to-baseline.ts` wrote the CSV's
+> `ID` column (enumeration-cluster code) instead of `id` (farmer id) into the
+> crop files. `scripts/build-crop-join.ts` now rewrites the five crop files in
+> place with the true farmer id + `group` on every record (9,362/9,362 joined,
+> ambiguous rows flagged `joinAmbiguous`), and the converter bug is fixed for
+> future CSV runs. This also fixed a live dashboard bug: the Crops analytics
+> were already joining records to farmers by id, silently dropping ~60% of rows.
+> The asks below remain — a ground-truth re-export validates the reconstruction.
 **Data examined:** `src/data/rounds/baseline/farmers.json` (2,579 farmers) and `src/data/rounds/baseline/crops/*.json` (9,362 records across mint, rice, potato, wheat, mustard). All numbers below were computed directly from these files; the scripts are reproducible from the descriptions.
 
 ## Executive summary
