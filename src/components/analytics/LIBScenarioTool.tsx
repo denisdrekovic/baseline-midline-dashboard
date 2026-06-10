@@ -852,7 +852,7 @@ export default function LIBScenarioTool() {
       params.otherOnFarmChange !== 0 ||
       params.offFarmChange !== 0 ||
       !params.includeT1Legacy ||
-      JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(generateDefaultT2Intake(params.projectionYears ?? 6)) ||
+      JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(defaults.t2YearlyIntake) ||
       params.supplyShEdPopulation !== DEFAULT_SUPPLY_SHED_POPULATION ||
       params.extrapolationRate !== 0.5 ||
       params.leverMode !== "percentage";
@@ -932,8 +932,9 @@ export default function LIBScenarioTool() {
     }
     if (params.otherOnFarmChange !== 0) count++;
     if (params.offFarmChange !== 0) count++;
-    if (params.includeT1Legacy) count++;
-    if (JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(generateDefaultT2Intake(params.projectionYears ?? 6))) count++;
+    if (!params.includeT1Legacy) count++;
+    const defaults = createDefaultParams("", params.projectionYears ?? 6);
+    if (JSON.stringify(params.t2YearlyIntake) !== JSON.stringify(defaults.t2YearlyIntake)) count++;
     return count;
   }, [params]);
 
@@ -1569,23 +1570,30 @@ export default function LIBScenarioTool() {
                       <div>
                         <label className="text-[10px] text-[var(--text-secondary)] font-medium">Lever Input Mode</label>
                         <div className="flex gap-1 mt-1">
-                          {([["percentage", "%"] , ["fixed", "₹"]] as const).map(([mode, label]) => (
-                            <button
-                              key={mode}
-                              onClick={() => setParams((p) => ({ ...p, leverMode: mode as LeverMode }))}
-                              className="flex-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-colors"
-                              style={{
-                                background: params.leverMode === mode ? "rgba(0,161,125,0.15)" : "var(--card-bg)",
-                                border: `1px solid ${params.leverMode === mode ? "var(--color-accent)" : "var(--card-border)"}`,
-                                color: params.leverMode === mode ? "var(--color-accent)" : "var(--text-tertiary)",
-                              }}
-                            >
-                              {label} {mode === "percentage" ? "Change" : "Value"}
-                            </button>
-                          ))}
+                          {([["percentage", "%"] , ["fixed", "₹"]] as const).map(([mode, label]) => {
+                            const isDisabled = mode === "fixed";
+                            return (
+                              <button
+                                key={mode}
+                                disabled={isDisabled}
+                                onClick={() => !isDisabled && setParams((p) => ({ ...p, leverMode: mode as LeverMode }))}
+                                className="flex-1 px-2 py-1 rounded-lg text-[10px] font-bold transition-colors"
+                                title={isDisabled ? "Target values arrive with the driver-based update" : undefined}
+                                style={{
+                                  background: params.leverMode === mode ? "rgba(0,161,125,0.15)" : "var(--card-bg)",
+                                  border: `1px solid ${params.leverMode === mode ? "var(--color-accent)" : "var(--card-border)"}`,
+                                  color: params.leverMode === mode ? "var(--color-accent)" : "var(--text-tertiary)",
+                                  opacity: isDisabled ? 0.45 : 1,
+                                  cursor: isDisabled ? "not-allowed" : "pointer",
+                                }}
+                              >
+                                {label} {mode === "percentage" ? "Change" : "Value"}
+                              </button>
+                            );
+                          })}
                         </div>
                         <p className="text-[9px] text-[var(--text-tertiary)] mt-0.5">
-                          {params.leverMode === "percentage" ? "Enter changes as % from baseline" : "Enter target values (e.g., INR 1,200/kg)"}
+                          Enter changes as % from baseline. ₹ target values arrive with the driver-based update.
                         </p>
                       </div>
                     </div>
@@ -1851,7 +1859,7 @@ export default function LIBScenarioTool() {
                   </p>
                   <p>
                     <strong className="text-[var(--text-secondary)]">Off-farm income:</strong> Income from wages, remittances, and non-agricultural
-                    activities is held constant across all scenarios (not affected by levers).
+                    activities moves with the Off-Farm lever (scaled by tenure for T2); with the lever at 0 it inflates with the baseline rate.
                   </p>
                 </div>
               </div>

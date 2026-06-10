@@ -124,13 +124,14 @@ export const RABI_ACREAGE_SHARES: Record<"potato" | "wheat" | "mustard", number>
 };
 
 /** Wheat acreage is the Rabi balancing term: when potato or mustard expand,
- *  wheat absorbs the land change. Returns wheat's derived % acreage change. */
+ *  wheat absorbs the land change. Returns wheat's derived % acreage change,
+ *  clamped at −100% (wheat land fully reallocated — acreage can't go negative). */
 export function getWheatAcreageChange(crops: Record<ModeledCrop, CropLever>): number {
   const { potato, wheat, mustard } = RABI_ACREAGE_SHARES;
   const landDelta =
     potato * (crops.potato.acreageChange / 100) +
     mustard * (crops.mustard.acreageChange / 100);
-  return Math.round((-landDelta / wheat) * 100);
+  return Math.max(-100, Math.round((-landDelta / wheat) * 100));
 }
 
 /** Normalize params before running the model: wheat carries no intervention
@@ -407,7 +408,7 @@ export const LIB_METHODOLOGY: {
   {
     parameter: "Tenure Curve (T2)",
     elasticity: "N/A (scaling factor)",
-    maxEffect: "30% -> 55% -> 75% -> 90% -> 100%",
+    maxEffect: "30% → 55% → 75% → 90% → 100%",
     mechanism: "T2 farmers realize improvements gradually over 5 years: Yr 1=30%, Yr 2=55%, Yr 3=75%, Yr 4=90%, Yr 5+=100% of target lever effect. Models realistic adoption lag.",
     source: "Program design assumption",
     sourceUrl: null,
@@ -431,7 +432,7 @@ export const LIB_METHODOLOGY: {
   {
     parameter: "LIB Benchmark",
     elasticity: "N/A (target line)",
-    maxEffect: `$${LIB_2024.toLocaleString()} -> ~$${Math.round(LIB_2024 * Math.pow(1 + LIB_INFLATION_RATE, 6)).toLocaleString()}`,
+    maxEffect: `$${LIB_2024.toLocaleString()} → ~$${Math.round(LIB_2024 * Math.pow(1 + LIB_INFLATION_RATE, 6)).toLocaleString()}`,
     mechanism: `Baseline LIB (2024): $${LIB_2024.toLocaleString()}. Inflates by CPI only (default ${(LIB_INFLATION_RATE * 100).toFixed(1)}% per year), matching the Annual Lock basis per Mars KPI guidance. Rising benchmark makes the target harder each year.`,
     source: "India CPI (Mars KPI guidance)",
     sourceUrl: null,
@@ -439,7 +440,7 @@ export const LIB_METHODOLOGY: {
   {
     parameter: "Other On-Farm Income",
     elasticity: "1.0 (direct)",
-    maxEffect: "+-100% at max",
+    maxEffect: "±100% at max",
     mechanism: "Applied as a simple percentage change to each farmer's baseline other on-farm income, including livestock (there are no livestock-specific interventions), scaled by tenure.",
     source: "Baseline survey decomposition",
     sourceUrl: null,
@@ -447,7 +448,7 @@ export const LIB_METHODOLOGY: {
   {
     parameter: "Off-Farm Income",
     elasticity: "1.0 (direct)",
-    maxEffect: "+-100% at max",
+    maxEffect: "±100% at max",
     mechanism: "Applied to wages, remittances, and non-agricultural income. Off-farm is ~4% of T1 income on average, but >10% for 29% of T1 farmers and >20% for 23%. Scaled by tenure for T2.",
     source: "Baseline survey decomposition",
     sourceUrl: null,
@@ -833,6 +834,8 @@ export function runLIBScenario(
     const totalPctAboveLIB = totalWeight > 0 ? (totalAbove / totalFarmersDisplay) * 100 : 0;
 
     // ── Median metrics for the cohort tiles ──
+    // Income increases are NOMINAL (include ~4%/yr inflation); the non-program
+    // figure is the inflation-only comparator readers should difference against.
     const t1BelowGaps = t1SampleBelow.map((inc) => lib - inc);
     const t2BelowGaps = t2Below.map((inc) => lib - inc);
     const nonProgramBelowGaps = nonProgramSampleIncomes.filter((inc) => inc <= lib).map((inc) => lib - inc);
@@ -1111,7 +1114,6 @@ export function getPresetScenarios(projectionYears = 6): LIBScenarioParams[] {
   t2.crops.mint  = { yieldChange: 15, priceChange: 5,  costChange: -5, acreageChange: 10 };
   t2.crops.rice  = { yieldChange: 10, priceChange: 5,  costChange: 0,  acreageChange: 0  };
   t2.crops.potato = { yieldChange: 10, priceChange: 10, costChange: -5, acreageChange: 0  };
-  t2.crops.wheat = { yieldChange: 5,  priceChange: 0,  costChange: 0,  acreageChange: 0  };
   t2.crops.mustard = { yieldChange: 5, priceChange: 5,  costChange: 0,  acreageChange: 0  };
   // Bigger T2 cohorts each year
   const t2Intake = generateDefaultT2Intake(projectionYears);
@@ -1124,7 +1126,6 @@ export function getPresetScenarios(projectionYears = 6): LIBScenarioParams[] {
   t1.crops.mint  = { yieldChange: 20, priceChange: 10, costChange: -10, acreageChange: 25 };
   t1.crops.rice  = { yieldChange: 5,  priceChange: 0,  costChange: 0,  acreageChange: -10 };
   t1.crops.potato = { yieldChange: 25, priceChange: 15, costChange: -10, acreageChange: 15 };
-  t1.crops.wheat = { yieldChange: 5,  priceChange: 0,  costChange: 0,  acreageChange: -15 };
   t1.crops.mustard = { yieldChange: 10, priceChange: 10, costChange: -5, acreageChange: 10 };
   t1.otherOnFarmChange = 15;
 
@@ -1489,8 +1490,8 @@ export function downloadScenarioExcel(
         `${yr.t1PctAboveLIB.toFixed(1)}%`,
         `$${Math.round(yr.t1AvgIncome).toLocaleString()}`,
         yr.t2TotalFarmers.toLocaleString(),
-        yr.t2TotalFarmers > 0 ? `${yr.t2PctAboveLIB.toFixed(1)}%` : "—",
-        yr.t2TotalFarmers > 0 ? `$${Math.round(yr.t2AvgIncome).toLocaleString()}` : "—",
+        yr.t2TotalFarmers > 0 || yr.t2PctAboveLIB > 0 ? `${yr.t2PctAboveLIB.toFixed(1)}%` : "—",
+        yr.t2TotalFarmers > 0 || yr.t2AvgIncome > 0 ? `$${Math.round(yr.t2AvgIncome).toLocaleString()}` : "—",
         `${yr.totalPctAboveLIB.toFixed(1)}%`,
         `$${Math.round(yr.totalAvgIncome).toLocaleString()}`,
       ], { altRow: i % 2 === 1 });
@@ -1612,6 +1613,21 @@ export function downloadScenarioExcel(
 }
 
 export function parseScenarioFile(content: string | ArrayBuffer): LIBScenarioParams | { error: string } {
+  // Try JSON first for string content — XLSX.read would otherwise swallow it as CSV
+  if (typeof content === "string" && content.trimStart().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed._format === "lib-scenario-v1" && parsed.scenario) {
+        return validateScenarioParams(parsed.scenario);
+      }
+      if (parsed.name && parsed.crops) {
+        return validateScenarioParams(parsed);
+      }
+    } catch {
+      // Not JSON — fall through to Excel
+    }
+  }
+
   // Try parsing as Excel
   try {
     // Convert ArrayBuffer → Uint8Array for SheetJS compatibility
@@ -1697,7 +1713,7 @@ function parseExcelDataSheet(sheet: XLSX.WorkSheet): LIBScenarioParams | { error
     targetYear: Number(kv.targetYear) || 2030,
     includeT1Legacy: kv.includeT1Legacy === 1 || kv.includeT1Legacy === "1",
     // Older exports carried a separate livestockChange — fold it into other on-farm
-    otherOnFarmChange: Number(kv.otherOnFarmChange) || Number(kv.livestockChange) || 0,
+    otherOnFarmChange: (Number(kv.otherOnFarmChange) || 0) + (Number(kv.livestockChange) || 0),
     crops: cropData,
     t2YearlyIntake: intakeData,
   };
@@ -1745,22 +1761,37 @@ function validateScenarioParams(raw: Record<string, unknown>): LIBScenarioParams
     ? rawTarget
     : BASELINE_YEAR + projYears;
 
+  // Sanitize structured fields — imported files can carry anything
+  const t1Offboarding = generateDefaultT1Offboarding(projYears);
+  if (raw.t1Offboarding && typeof raw.t1Offboarding === "object" && !Array.isArray(raw.t1Offboarding)) {
+    for (const [yr, val] of Object.entries(raw.t1Offboarding as Record<string, unknown>)) {
+      const yearNum = Number(yr);
+      if (validYears.includes(yearNum) && yearNum > BASELINE_YEAR) {
+        t1Offboarding[yearNum] = clamp(Number(val) || 0, 0, PROGRAM_T1_FARMERS);
+      }
+    }
+  }
+  const reportedYears = Array.isArray(raw.reportedYears)
+    ? (raw.reportedYears as unknown[]).map(Number).filter((y) => validYears.includes(y))
+    : [BASELINE_YEAR];
+
   return {
     name: raw.name as string,
     crops,
-    otherOnFarmChange: clamp(Number(raw.otherOnFarmChange) || Number(raw.livestockChange) || 0, -50, 100),
+    otherOnFarmChange: clamp((Number(raw.otherOnFarmChange) || 0) + (Number(raw.livestockChange) || 0), -50, 100),
     offFarmChange: clamp(Number(raw.offFarmChange) || 0, -50, 100),
     t2YearlyIntake,
     includeT1Legacy: raw.includeT1Legacy != null ? Boolean(raw.includeT1Legacy) : true,
     targetYear,
     projectionYears: projYears,
-    leverMode: (raw.leverMode === "fixed" ? "fixed" : "percentage") as LeverMode,
-    supplyShEdPopulation: Number(raw.supplyShEdPopulation) || DEFAULT_SUPPLY_SHED_POPULATION,
+    // Fixed (₹) mode is disabled until driver-based levers land (Phase 3)
+    leverMode: "percentage" as LeverMode,
+    supplyShEdPopulation: clamp(Number(raw.supplyShEdPopulation) || DEFAULT_SUPPLY_SHED_POPULATION, 1000, 10_000_000),
     extrapolationRate: (EXTRAPOLATION_RATES.includes(Number(raw.extrapolationRate) as ExtrapolationRate)
       ? Number(raw.extrapolationRate)
       : DEFAULT_EXTRAPOLATION_RATE) as ExtrapolationRate,
-    t1Offboarding: (raw.t1Offboarding as Record<number, number>) ?? generateDefaultT1Offboarding(projYears),
-    reportedYears: (raw.reportedYears as number[]) ?? [BASELINE_YEAR],
+    t1Offboarding,
+    reportedYears,
   };
 }
 
