@@ -1861,6 +1861,11 @@ export default function LIBScenarioTool() {
                     <strong className="text-[var(--text-secondary)]">Off-farm income:</strong> Income from wages, remittances, and non-agricultural
                     activities moves with the Off-Farm lever (scaled by tenure for T2); with the lever at 0 it inflates with the baseline rate.
                   </p>
+                  <p>
+                    <strong className="text-[var(--text-secondary)]">KPI composition effect:</strong> The T2 baseline survey sample is substantially
+                    better-off than T1 or Control (67% vs 11% vs 4% above LIB in 2024). Enrolling T2 cohorts therefore raises the Supply Shed KPI
+                    even with no income gains — year-over-year KPI movement reflects enrollment composition as well as income change.
+                  </p>
                 </div>
               </div>
             </motion.div>

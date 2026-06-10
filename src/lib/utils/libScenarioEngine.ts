@@ -737,18 +737,14 @@ export function runLIBScenario(
     }
 
     // ── T2 projections ──
-    const t2ActiveFarmers: { income: number; wasAbovePrev: boolean; incomeIncrease: number }[] = [];
+    const t2ActiveFarmers: { income: number; incomeIncrease: number }[] = [];
     for (const [joinYear, cohortFarmers] of Object.entries(t2CohortSchedule)) {
       const jy = Number(joinYear);
       if (jy > year) continue;
       for (const farmer of cohortFarmers) {
         const income = projectFarmerIncome(farmer, params, year, jy);
-        // For "moved above": a T2 farmer joining above LIB is NOT counted as "moved above"
-        const wasAbovePrev = jy === year
-          ? farmer.totalNetIncome > baselineLIB // new entrant: check baseline status
-          : false; // existing: tracked below
         const joinIncome = projectFarmerIncome(farmer, params, jy, jy);
-        t2ActiveFarmers.push({ income, wasAbovePrev, incomeIncrease: income - joinIncome });
+        t2ActiveFarmers.push({ income, incomeIncrease: income - joinIncome });
       }
     }
 
@@ -1002,9 +998,12 @@ function computeCropContributions(
     const projectedAvg = mean(
       growers.map((f) => {
         const baseCropIncome = f.cropIncomes[crop];
-        const baseRevenue = baseCropIncome > 0
-          ? baseCropIncome / (1 - costRatio)
-          : Math.abs(baseCropIncome) * costRatio / (1 - costRatio);
+        // Same handling as projectFarmerIncome: loss-making growers can't be
+        // decomposed into revenue/cost via the ratio — only acreage scales them.
+        if (baseCropIncome <= 0) {
+          return baseCropIncome * (1 + lever.acreageChange / 100);
+        }
+        const baseRevenue = baseCropIncome / (1 - costRatio);
         const baseCost = baseRevenue * costRatio;
 
         const projRevenue = baseRevenue *
