@@ -1,15 +1,23 @@
 /**
- * Reconstruct the crop-record → farmer join from row order.
+ * Repair the baseline crop files: replace the junk id column with the true
+ * farmer id and stamp the group (T-1 / T-2 / Control) on every record.
  *
- * The crop files' `id` column is not a farmer id (33 cluster-like codes shared
- * across all five files). But the files are farmer-level in farmers.json order:
- * mint is strictly positional (row i = farmer i) and the other crops are ordered
- * subsequences — each row matches the next farmer (in file order) whose
- * {crop}NetIncome equals the row's netIncome. See docs/PHASE2-DATA-INVESTIGATION.md.
+ * Background: scripts/csv-to-baseline.ts originally wrote `num(r.ID)` — an
+ * enumeration-cluster code (33 values) — instead of the farmer id, so crop
+ * records could not be joined to farmers. The files are farmer-level in
+ * farmers.json order (mint strictly positional; other crops ordered
+ * subsequences), so the join is reconstructed by walking both files in order
+ * and matching on {crop}NetIncome. See docs/PHASE2-DATA-INVESTIGATION.md.
  *
- * Writes src/data/rounds/baseline/crops-joined.json: every crop record tagged
- * with farmerId and group (T-1 / T-2 / Control), plus provenance metadata.
+ * Within a run of identical netIncome values the row↔farmer assignment can
+ * permute, but the SET of farmers per run is fixed — so group-level income
+ * stats are exact; only yield/acre attribution is uncertain inside runs that
+ * span more than one group. Those rows are flagged `joinAmbiguous`.
+ *
+ * Writes (in place): src/data/rounds/baseline/crops/{crop}.json
+ * Also writes:       src/data/rounds/baseline/crops-joined.json (combined)
  * Run: npx tsx scripts/build-crop-join.ts
+ * Idempotent — matching uses row order + netIncome, not the id column.
  */
 import * as fs from "fs";
 import * as path from "path";
@@ -32,17 +40,14 @@ interface CropRow {
   expenses: number | null;
   netIncome: number | null;
   crop: string;
-}
-
-interface JoinedRow extends Omit<CropRow, "id"> {
-  farmerId: number;
-  group: string;
-  sourceClusterId: number;
+  group?: string;
+  joinAmbiguous?: boolean;
 }
 
 const farmers = JSON.parse(fs.readFileSync(path.join(BASE, "farmers.json"), "utf8"));
-const joined: JoinedRow[] = [];
-const stats: Record<string, { rows: number; matched: number; ambiguous: number }> = {};
+const allJoined: CropRow[] = [];
+
+console.log("crop      | rows  | matched | ambiguous | cross-group amb | pooled cost ratio");
 
 for (const crop of CROPS) {
   const rows: CropRow[] = JSON.parse(
@@ -50,12 +55,13 @@ for (const crop of CROPS) {
   );
   const key = NET_KEY[crop];
   let fi = 0;
-  let matched = 0;
   let ambiguous = 0;
+  let crossGroup = 0;
 
-  for (const r of rows) {
+  const repaired: CropRow[] = rows.map((r) => {
     const target = r.netIncome != null ? Math.round(r.netIncome * 100) : null;
     let farmer = null;
+    let nextSameValueFarmer = null;
 
     while (fi < farmers.length) {
       const f = farmers[fi];
@@ -63,11 +69,10 @@ for (const crop of CROPS) {
       fi++;
       if (v === target) {
         farmer = f;
-        // Equal value on the immediately following farmer means the greedy
-        // assignment is not provably unique — count it so the re-export
-        // validation knows where to look.
         const next = farmers[fi];
-        if (next && next[key] != null && Math.round(next[key] * 100) === target) ambiguous++;
+        if (next && next[key] != null && Math.round(next[key] * 100) === target) {
+          nextSameValueFarmer = next;
+        }
         break;
       }
     }
@@ -77,51 +82,55 @@ for (const crop of CROPS) {
       process.exit(1);
     }
 
-    matched++;
-    joined.push({
-      farmerId: farmer.id,
+    const isAmbiguous = nextSameValueFarmer != null;
+    if (isAmbiguous) {
+      ambiguous++;
+      if (nextSameValueFarmer.project !== farmer.project) crossGroup++;
+    }
+
+    const out: CropRow = {
+      id: farmer.id,
       group: farmer.project,
-      sourceClusterId: r.id,
       yield: r.yield ?? null,
       acre: r.acre ?? null,
       income: r.income ?? null,
       expenses: r.expenses ?? null,
       netIncome: r.netIncome ?? null,
       crop,
-    });
-  }
+    };
+    if (isAmbiguous) out.joinAmbiguous = true;
+    return out;
+  });
 
-  stats[crop] = { rows: rows.length, matched, ambiguous };
-}
-
-// Validation: per-group pooled cost ratios must reproduce the Phase 1 constants
-console.log("crop      | rows  | matched | ambiguous | pooled cost ratio");
-for (const crop of CROPS) {
-  const s = stats[crop];
+  // Validation: pooled cost ratio must reproduce the Phase 1 constants
   let inc = 0;
   let net = 0;
-  for (const r of joined) {
-    if (r.crop !== crop || r.income == null || r.income <= 0 || r.netIncome == null) continue;
+  for (const r of repaired) {
+    if (r.income == null || r.income <= 0 || r.netIncome == null) continue;
     inc += r.income;
     net += r.netIncome;
   }
   const ratio = ((1 - net / inc) * 100).toFixed(1);
   console.log(
-    `${crop.padEnd(9)} | ${String(s.rows).padStart(5)} | ${String(s.matched).padStart(7)} | ${String(s.ambiguous).padStart(9)} | ${ratio}%`,
+    `${crop.padEnd(9)} | ${String(rows.length).padStart(5)} | ${String(repaired.length).padStart(7)} | ${String(ambiguous).padStart(9)} | ${String(crossGroup).padStart(15)} | ${ratio}%`,
   );
+
+  fs.writeFileSync(path.join(BASE, "crops", `${crop}.json`), JSON.stringify(repaired));
+  allJoined.push(...repaired);
 }
 
 const out = {
   meta: {
     description:
-      "Crop records joined to farmers by ordered reconstruction (NOT a source export). " +
-      "Provisional until the data team re-exports with true farmer ids. " +
-      "Method and validation: docs/PHASE2-DATA-INVESTIGATION.md",
+      "Combined crop records with true farmer id + group, reconstructed by ordered join " +
+      "(NOT a source export — see docs/PHASE2-DATA-INVESTIGATION.md). Rows flagged " +
+      "joinAmbiguous sit in equal-netIncome runs where farmer attribution can permute; " +
+      "group income aggregates are exact regardless.",
     source: "src/data/rounds/baseline/{farmers.json, crops/*.json}",
-    records: joined.length,
+    records: allJoined.length,
   },
-  records: joined,
+  records: allJoined,
 };
 
 fs.writeFileSync(path.join(BASE, "crops-joined.json"), JSON.stringify(out));
-console.log(`\nWrote ${joined.length} joined records to src/data/rounds/baseline/crops-joined.json`);
+console.log(`\nRepaired 5 crop files in place; wrote ${allJoined.length} combined records to crops-joined.json`);

@@ -86,13 +86,17 @@ export interface Farmer {
 }
 
 export interface CropRecord {
-  id: number;
+  id: number; // farmer id (joins to Farmer.id)
   yield: number;
   acre: number;
   income: number;
   expenses: number;
   netIncome: number;
   crop: string;
+  /** Project group (T-1 / T-2 / Control) — present on baseline records */
+  group?: string;
+  /** True when the row sits in an equal-netIncome run where farmer attribution can permute */
+  joinAmbiguous?: boolean;
 }
 
 export interface ProjectGroupStat {
