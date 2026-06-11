@@ -898,6 +898,18 @@ export default function LIBScenarioTool() {
   // Active result is always the summary (target year)
   const activeResult = result.summary;
 
+  // T1 tile reflects Legacy when included — population, not just the active core
+  const t1Tile = useMemo(() => {
+    const inclLegacy = params.includeT1Legacy && activeResult.legacyTotalFarmers > 0;
+    const total = activeResult.t1TotalFarmers + (inclLegacy ? activeResult.legacyTotalFarmers : 0);
+    const above = activeResult.t1AboveLIB + (inclLegacy ? activeResult.legacyAboveLIB : 0);
+    return {
+      label: inclLegacy ? "T1 + Legacy Above LIB" : "T1 Above LIB",
+      pct: total > 0 ? (above / total) * 100 : 0,
+      sub: `${formatNumber(above)} of ${formatNumber(total)}`,
+    };
+  }, [activeResult, params.includeT1Legacy]);
+
   // Chart reference year for the highlight marker
   const chartRefYear = params.targetYear;
 
@@ -1113,10 +1125,10 @@ export default function LIBScenarioTool() {
             />
             <KPICard label="Avg Income" numericValue={activeResult.totalAvgIncome} formatter={formatUSD} subValue={`LIB: ${formatUSD(activeResult.lib)}`} icon={DollarSign} color="#007BFF" />
             <KPICard
-              label="T1 Above LIB"
-              numericValue={activeResult.t1PctAboveLIB}
+              label={t1Tile.label}
+              numericValue={t1Tile.pct}
               formatter={formatPercent}
-              subValue={`${formatNumber(activeResult.t1AboveLIB)} of ${formatNumber(activeResult.t1TotalFarmers)}`}
+              subValue={t1Tile.sub}
               icon={Users}
               color="#007BFF"
             />
@@ -1606,7 +1618,16 @@ export default function LIBScenarioTool() {
                       Cohorts & Coverage
                     </h3>
                     <div className="space-y-3">
-                      {/* T1 Legacy toggle */}
+                      {/* T1 program total — fixed anchor */}
+                      <div className="flex items-center justify-between px-2 py-1.5 rounded-lg" style={{ background: "var(--card-bg)", border: "1px solid var(--card-border)" }}>
+                        <div>
+                          <span className="text-[11px] font-medium text-[var(--text-primary)]">T1 Program Farmers</span>
+                          <p className="text-[9px] text-[var(--text-tertiary)]">Fixed program total — offboarding moves farmers to Legacy within it</p>
+                        </div>
+                        <span className="text-[11px] font-mono font-bold text-[var(--text-primary)]">{formatNumber(PROGRAM_T1_FARMERS)}</span>
+                      </div>
+
+                      {/* T1 Legacy toggle — enables the offboarding plan */}
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
@@ -1616,7 +1637,7 @@ export default function LIBScenarioTool() {
                         />
                         <div>
                           <span className="text-[11px] font-medium text-[var(--text-primary)]">Include T1 Legacy</span>
-                          <p className="text-[9px] text-[var(--text-tertiary)]">Offboarded farmers (inflation-only growth, part of supply shed)</p>
+                          <p className="text-[9px] text-[var(--text-tertiary)]">Enables the offboarding plan — offboarded T1 farmers become Legacy (inflation-only growth)</p>
                         </div>
                       </label>
 
@@ -1791,8 +1812,8 @@ export default function LIBScenarioTool() {
               <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
                 <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
                   This tool calculates the <strong className="text-[var(--text-primary)]">Mint Segment Living Income KPI</strong> across the full supply shed —
-                  8,500 T1 Core farmers, 8,000+ Legacy/offboarded farmers, up to 10,000 T2 farmers, and the non-program supply shed population
-                  (modeled from control group data). The KPI = % of total supply shed at or above the inflation-adjusted LIB.
+                  23,875 T1 program farmers (a fixed total; the offboarding plan moves farmers to Legacy status within it), up to 10,000 T2 farmers,
+                  and the non-program supply shed population (modeled from control group data). The KPI = % of total supply shed at or above the inflation-adjusted LIB.
                   Reported years show actual calculated KPIs; projected years run scenarios forward from the most recent reported year.
                   The LIB inflates by CPI only, matching the Annual Lock basis per Mars KPI guidance.
                 </p>
@@ -1842,10 +1863,10 @@ export default function LIBScenarioTool() {
                 {/* Footnotes */}
                 <div className="space-y-2 text-[10px] text-[var(--text-tertiary)] leading-relaxed">
                   <p>
-                    <strong className="text-[var(--text-secondary)]">Farmer groups:</strong> 8,500 T1 Core farmers receive full lever effects.
-                    8,000 Legacy farmers (optional, offboarded from active program) retain their baseline income level, inflating with
-                    the LIB rate year-over-year but receiving no program lever effects. T2 farmers join in annual cohorts and follow the tenure curve above.
-                    All projections are scaled from the T1 baseline survey sample to actual program population sizes.
+                    <strong className="text-[var(--text-secondary)]">Farmer groups:</strong> The T1 program totals 23,875 farmers — a fixed anchor.
+                    Active T1 farmers receive full lever effects; the offboarding plan (Include T1 Legacy) moves farmers to Legacy status, where income
+                    retains its baseline level and inflates with the LIB rate but receives no program lever effects. T2 farmers join in annual cohorts
+                    and follow the tenure curve above. All projections are scaled from the survey samples to program population sizes.
                   </p>
                   <p>
                     <strong className="text-[var(--text-secondary)]">Rabi land balance:</strong> Potato, wheat, and mustard compete for the same

@@ -155,9 +155,10 @@ export function normalizeScenarioParams(params: LIBScenarioParams): LIBScenarioP
 /** Max total T2 farmers */
 export const MAX_T2_FARMERS = 10_000;
 
-/** Actual program population sizes (surveyed farmers are a representative sample) */
-export const PROGRAM_T1_FARMERS = 8_500;
-export const PROGRAM_LEGACY_FARMERS = 8_000;
+/** Total T1 program farmers — fixed anchor (surveyed farmers are a representative
+ *  sample scaled to this total). Offboarding moves farmers from active T1 to
+ *  Legacy status within this total; it never changes it. */
+export const PROGRAM_T1_FARMERS = 23_875;
 
 /** Default total supply shed population estimate */
 export const DEFAULT_SUPPLY_SHED_POPULATION = 50_000;
@@ -192,8 +193,7 @@ export function generateDefaultT2Intake(projectionYears: number): Record<number,
   return intake;
 }
 
-/** Generate default T1 offboarding schedule (gradual, not all-at-once).
- *  Distributes PROGRAM_LEGACY_FARMERS evenly across projection years. */
+/** Generate default T1 offboarding schedule — all zeros (user fills in the plan). */
 export function generateDefaultT1Offboarding(projectionYears: number): Record<number, number> {
   const offboarding: Record<number, number> = {};
   for (let i = 1; i <= projectionYears; i++) {
@@ -416,8 +416,8 @@ export const LIB_METHODOLOGY: {
   {
     parameter: "Population Scaling",
     elasticity: "N/A (scaling)",
-    maxEffect: `${PROGRAM_T1_FARMERS.toLocaleString()} T1 + ${PROGRAM_LEGACY_FARMERS.toLocaleString()} Legacy`,
-    mechanism: `Baseline survey data (~1,068 T1, ~220 T2 farmers) is treated as a representative sample. T1 Core (${PROGRAM_T1_FARMERS.toLocaleString()}) and Legacy (${PROGRAM_LEGACY_FARMERS.toLocaleString()}, optional) both use the T1 survey distribution. Legacy farmers retain baseline income inflating at the LIB rate (no program lever effects). T2 farmers are added incrementally using the T2 survey distribution.`,
+    maxEffect: `${PROGRAM_T1_FARMERS.toLocaleString()} T1 (fixed total)`,
+    mechanism: `Baseline survey data (~1,068 T1, ~220 T2 farmers) is treated as a representative sample. The T1 program totals ${PROGRAM_T1_FARMERS.toLocaleString()} farmers (fixed anchor); the offboarding plan moves farmers from active T1 to Legacy status within that total. Both statuses use the T1 survey distribution. T2 farmers are added incrementally using the T2 survey distribution.`,
     source: "Shubh Samriddhi program design",
     sourceUrl: null,
   },
@@ -457,7 +457,7 @@ export const LIB_METHODOLOGY: {
     parameter: "Legacy Farmers",
     elasticity: "N/A (inflation only)",
     maxEffect: `${(LIB_INFLATION_RATE * 100).toFixed(1)}% annual growth`,
-    mechanism: `${PROGRAM_LEGACY_FARMERS.toLocaleString()} offboarded T1 farmers (optional toggle). Income inflates at ${(LIB_INFLATION_RATE * 100).toFixed(1)}% per year matching the LIB rate — no program lever effects applied. Uses T1 baseline survey distribution (not Control), since Legacy farmers had prior program support.`,
+    mechanism: `T1 farmers moved to Legacy status by the offboarding plan (enabled via the Include T1 Legacy toggle). Income inflates at ${(LIB_INFLATION_RATE * 100).toFixed(1)}% per year matching the LIB rate — no program lever effects applied. Uses T1 baseline survey distribution (not Control), since Legacy farmers had prior program support.`,
     source: "Shubh Samriddhi program design",
     sourceUrl: null,
   },
@@ -652,9 +652,8 @@ export function runLIBScenario(
   const t2Base = allBaselines.filter((f) => f.project === "T-2");
   const controlSample = allBaselines.filter((f) => f.project === "Control");
 
-  // Scale factors: survey sample → program population
+  // Scale factor: survey sample → fixed program total (23,875)
   const t1ScaleFactor = PROGRAM_T1_FARMERS / (t1CoreSample.length || 1);
-  const legacyScaleFactor = PROGRAM_LEGACY_FARMERS / (t1CoreSample.length || 1);
 
   const t1Active = t1CoreSample;
 
@@ -666,8 +665,7 @@ export function runLIBScenario(
   // Baseline stats (2024)
   const baselineLIB = getLIBForYear(BASELINE_YEAR, params.yearlyIndices, params.lockedAnchor);
   const t1SampleAbove2024 = t1Active.filter((f) => f.totalNetIncome > baselineLIB).length;
-  const baselineAbove = Math.round(t1SampleAbove2024 * t1ScaleFactor)
-    + (params.includeT1Legacy ? Math.round(t1SampleAbove2024 * legacyScaleFactor) : 0);
+  const baselineAbove = Math.round(t1SampleAbove2024 * t1ScaleFactor);
 
   const modelYears = generateYears(params.projectionYears ?? 6);
 
@@ -693,11 +691,12 @@ export function runLIBScenario(
     const isReported = reportedYears.has(year);
     const baseInflation = getBaseInflation(year, params.yearlyIndices);
 
-    // ── T1 offboarding: reduce active T1, increase legacy ──
-    const offboardedThisYear = offboarding[year] ?? 0;
+    // ── T1 offboarding: reduce active T1, grow Legacy — total stays anchored
+    //    at PROGRAM_T1_FARMERS. The plan only applies when includeT1Legacy is on. ──
+    const offboardedThisYear = params.includeT1Legacy ? (offboarding[year] ?? 0) : 0;
     cumulativeOffboarded += offboardedThisYear;
     const activeT1Count = Math.max(0, PROGRAM_T1_FARMERS - cumulativeOffboarded);
-    const activeLegacyCount = PROGRAM_LEGACY_FARMERS + cumulativeOffboarded;
+    const activeLegacyCount = Math.min(PROGRAM_T1_FARMERS, cumulativeOffboarded);
     const t1DisplayScale = activeT1Count / (t1CoreSample.length || 1);
     const legacyDisplayScale = activeLegacyCount / (t1CoreSample.length || 1);
 
@@ -729,7 +728,7 @@ export function runLIBScenario(
     let legacySampleAbove = 0;
     let legacyAbove = 0;
     let legacyTotalDisplay = 0;
-    if (params.includeT1Legacy) {
+    if (params.includeT1Legacy && activeLegacyCount > 0) {
       legacySampleIncomes = t1Active.map((f) => f.totalNetIncome * baseInflation);
       legacySampleAbove = legacySampleIncomes.filter((inc) => inc > lib).length;
       legacyAbove = Math.round(legacySampleAbove * legacyDisplayScale);
@@ -807,7 +806,7 @@ export function runLIBScenario(
     const totalFarmersDisplay = programTotal;
 
     const t1Pct = t1Active.length > 0 ? (t1SampleAbove / t1Active.length) * 100 : 0;
-    const legacyPct = params.includeT1Legacy && t1Active.length > 0
+    const legacyPct = legacyTotalDisplay > 0 && t1Active.length > 0
       ? (legacySampleAbove / t1Active.length) * 100 : 0;
 
     const t1Weight = t1TotalDisplay;
@@ -905,8 +904,8 @@ export function runLIBScenario(
 
   const summary = yearlyResults.find((r) => r.year === params.targetYear) ?? yearlyResults[yearlyResults.length - 1];
 
-  const baselineTotalFarmers = PROGRAM_T1_FARMERS
-    + (params.includeT1Legacy ? PROGRAM_LEGACY_FARMERS : 0);
+  // Total T1 population is the fixed anchor — Legacy is a status within it
+  const baselineTotalFarmers = PROGRAM_T1_FARMERS;
 
   // Baseline supply shed KPI
   const baselineResult = yearlyResults[0];
@@ -1394,7 +1393,8 @@ export function downloadScenarioExcel(
   const settings: [string, string | number][] = [
     ["Projection Horizon", `${scenario.projectionYears ?? 6} years (${BASELINE_YEAR}–${scenario.targetYear})`],
     ["Target Year", scenario.targetYear],
-    ["T1 Legacy Farmers", scenario.includeT1Legacy ? "✓ Included" : "✗ Excluded"],
+    ["T1 Program Farmers (fixed total)", PROGRAM_T1_FARMERS.toLocaleString()],
+    ["T1 Offboarding Plan", scenario.includeT1Legacy ? "✓ Enabled" : "✗ Disabled"],
     ["Supply Shed Population", (scenario.supplyShEdPopulation ?? DEFAULT_SUPPLY_SHED_POPULATION).toLocaleString()],
     ["Extrapolation Rate", `${((scenario.extrapolationRate ?? DEFAULT_EXTRAPOLATION_RATE) * 100).toFixed(0)}%`],
     ["Lever Mode", scenario.leverMode ?? "percentage"],
@@ -1710,9 +1710,13 @@ function parseExcelDataSheet(sheet: XLSX.WorkSheet): LIBScenarioParams | { error
   const raw: Record<string, unknown> = {
     name: kv.name || "Imported Scenario",
     targetYear: Number(kv.targetYear) || 2030,
+    projectionYears: kv.projectionYears,
     includeT1Legacy: kv.includeT1Legacy === 1 || kv.includeT1Legacy === "1",
     // Older exports carried a separate livestockChange — fold it into other on-farm
     otherOnFarmChange: (Number(kv.otherOnFarmChange) || 0) + (Number(kv.livestockChange) || 0),
+    offFarmChange: kv.offFarmChange,
+    supplyShEdPopulation: kv.supplyShEdPopulation,
+    extrapolationRate: kv.extrapolationRate,
     crops: cropData,
     t2YearlyIntake: intakeData,
   };
